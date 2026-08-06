@@ -27,11 +27,28 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     beiAbmeldung?.();
     throw new NichtAngemeldet();
   }
-  if (!res.ok) throw new Error(`API ${path}: ${res.status}`);
+  if (!res.ok) throw new Error(await fehlerText(res, `API ${path}: ${res.status}`));
   return res.json() as Promise<T>;
+}
+
+/**
+ * Der Server erklaert Fehler im Klartext (`{ error: "…" }`) — und zwar in
+ * ganzen deutschen Saetzen, die man einem Menschen zeigen kann. Vorher warf
+ * `api()` stattdessen „API /me: 400" weg; jedes Formular haette sich seine
+ * eigene fetch-Schleife bauen muessen, um an die Begruendung zu kommen.
+ */
+export async function fehlerText(res: Response, ersatz: string): Promise<string> {
+  try {
+    const d = await res.json();
+    return typeof d?.error === "string" ? d.error : ersatz;
+  } catch {
+    return ersatz;
+  }
 }
 
 export interface Me {
   name: string;
   appName: string;
+  /** Data-URL des Profilbilds, oder null fuer „zeig die Initialen". */
+  avatar: string | null;
 }

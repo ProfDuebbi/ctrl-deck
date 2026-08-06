@@ -14,7 +14,8 @@ Schatten, kleine Radien, Farbe nur dort, wo sie etwas bedeutet. Der frühere
 
 **Bewegung nur, wo sie etwas bedeutet** (Regel 5): Eine Animation muss eine
 Frage beantworten — „wo ist die Karte hin", „woher komme ich", „ist es jetzt
-offen", „wie voll ist das". Kein Anheben beim Überfahren, kein Pulsieren, keine
+offen", „wie voll ist das", „kann ich das anklicken" (Zahnrad um den Avatar,
+rastet um einen Zahn). Kein Anheben beim Überfahren, kein Pulsieren, keine
 Einblend-Kaskaden, keine hochzählenden Zahlen. Reines Zustandsfeedback bleibt
 ein Farbwechsel in `--t`. `prefers-reduced-motion` schaltet alles ab.
 

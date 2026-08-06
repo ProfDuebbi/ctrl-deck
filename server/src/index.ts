@@ -19,6 +19,7 @@ import {
   listBackups, deleteBackup, BACKUP_DIR,
 } from "./db.js";
 import { anmeldeRouten, istEingerichtet, tuersteher } from "./auth.js";
+import { kopfRouten } from "./kopf.js";
 import { externPfad, externStatus, setzeExternPfad, syncExtern } from "./externBackup.js";
 import { serverModules } from "./modules/index.js";
 
@@ -71,7 +72,11 @@ const ERLAUBTE_HERKUNFT = [
   ...(process.env.ORIGIN ?? "").split(",").map((s) => s.trim()).filter(Boolean),
 ];
 app.use(cors({ origin: ERLAUBTE_HERKUNFT, credentials: true }));
-app.use(express.json());
+// Express nimmt von Haus aus nur 100 kB entgegen — ein Profilbild als
+// Data-URL sprengt das knapp und haette einen kryptischen 413 geliefert.
+// Die scharfe Grenze zieht die Route selbst (AVATAR_MAX), hier steht nur
+// genug Luft, damit eine ehrliche Anfrage ueberhaupt ankommt.
+app.use(express.json({ limit: "1mb" }));
 
 /**
  * Ab hier ist alles unter /api abgeschlossen.
@@ -89,6 +94,10 @@ app.use("/api", tuersteher);
 
 // --- Kern-Endpunkte -------------------------------------------------------
 
+// Aussehen des Kopfbereichs (Bild, Uhr, Wetter). Steht HINTER dem Tuersteher:
+// ein Kopfbild kann verraten, wer hier wohnt.
+kopfRouten(app);
+
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "ctrl-deck", time: new Date().toISOString() });
 });
@@ -96,18 +105,72 @@ app.get("/api/health", (_req, res) => {
 // Begruessung / Nutzer fuer die Startseite ("Willkommen, <Name>").
 // Ohne gesetzten Namen bleibt die Begruessung namenlos — die Oberflaeche
 // laesst dann das Komma weg.
+
+/**
+ * Obergrenze fuers Profilbild, gemessen an der Data-URL.
+ *
+ * Das Bild liegt bewusst IN DER DATENBANK und nicht als Datei in `data/`:
+ * Sicherung, externe Spiegelung und Wiederherstellen fassen die `.db` an —
+ * ein eigener Ordner waere beim Wiederherstellen still verlorengegangen
+ * (nur `data/tresor/` ist mit der Sicherung gepaart, siehe db.ts).
+ *
+ * Damit die Datenbank davon nicht aufgeht, verkleinert die Oberflaeche das
+ * Bild vorher auf 256×256. 300 kB lassen dafuer reichlich Luft und sind fuer
+ * SQLite nichts; wer die Grenze reisst, hat die Verkleinerung umgangen.
+ */
+const AVATAR_MAX = 300_000;
+const AVATAR_ERLAUBT = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+
 app.get("/api/me", (_req, res) => {
   res.json({
     name: getSetting("user_name") ?? "",
-    appName: getSetting("app_name") ?? "CTRL·DECK",
+    appName: getSetting("app_name") || "CTRL·DECK",
+    avatar: getSetting("user_avatar") || null,
   });
 });
 
+/**
+ * Teilweise Aenderung: nur was im Rumpf steht, wird angefasst.
+ *
+ * Deshalb `in`-Pruefungen statt Wahrheitswerten — sonst koennte man das Bild
+ * nie wieder loswerden, weil `null` und „nicht mitgeschickt" gleich aussaehen.
+ */
 app.put("/api/me", (req, res) => {
-  const name = String(req.body?.name ?? "").trim();
-  if (!name) return res.status(400).json({ error: "name fehlt" });
-  setSetting("user_name", name);
-  res.json({ name });
+  const body = req.body ?? {};
+
+  if ("name" in body) {
+    const name = String(body.name ?? "").trim();
+    if (!name) return res.status(400).json({ error: "Bitte einen Namen angeben." });
+    if (name.length > 60) return res.status(400).json({ error: "Der Name ist zu lang (höchstens 60 Zeichen)." });
+    setSetting("user_name", name);
+  }
+
+  if ("appName" in body) {
+    // Leer heisst „zurueck zur Vorgabe", nicht „gar kein Name" — eine App
+    // ohne Titel waere in der Seitenleiste eine leere Zeile.
+    const appName = String(body.appName ?? "").trim();
+    if (appName.length > 30) return res.status(400).json({ error: "Der Titel ist zu lang (höchstens 30 Zeichen)." });
+    setSetting("app_name", appName);
+  }
+
+  if ("avatar" in body) {
+    const avatar = body.avatar;
+    if (avatar === null || avatar === "") {
+      setSetting("user_avatar", "");
+    } else if (typeof avatar !== "string" || !AVATAR_ERLAUBT.test(avatar)) {
+      return res.status(400).json({ error: "Das ist kein gültiges Bild (PNG, JPEG oder WebP)." });
+    } else if (avatar.length > AVATAR_MAX) {
+      return res.status(413).json({ error: "Das Bild ist zu groß." });
+    } else {
+      setSetting("user_avatar", avatar);
+    }
+  }
+
+  res.json({
+    name: getSetting("user_name") ?? "",
+    appName: getSetting("app_name") || "CTRL·DECK",
+    avatar: getSetting("user_avatar") || null,
+  });
 });
 
 /**

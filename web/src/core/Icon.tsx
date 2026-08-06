@@ -168,6 +168,41 @@ const SYMBOLE = {
       <P d="M15.8 15.8 20.5 20.5" />
     </>
   ),
+  // Kopf und Schultern. Dient zugleich als Ersatzbild im Avatar, wenn weder
+  // Foto noch Name da sind — deshalb bewusst mittig und ohne Rahmen.
+  person: (
+    <>
+      <circle cx="12" cy="8" r="4" />
+      <P d="M4.5 20.5a7.5 7.5 0 0 1 15 0" />
+    </>
+  ),
+  // Zahnrad. Die Zaehne sitzen AUF dem Kranz, nicht als Strahlen davor —
+  // radial abgehende Striche lesen sich bei 24px als Sonne, nicht als Rad.
+  einstellungen: (
+    <>
+      <circle cx="12" cy="12" r="3.4" />
+      <circle cx="12" cy="12" r="7.6" />
+      {[0, 45, 90, 135, 180, 225, 270, 315].map((winkel) => (
+        <rect
+          key={winkel}
+          x="10.9"
+          y="1.9"
+          width="2.2"
+          height="3.2"
+          rx="0.8"
+          transform={`rotate(${winkel} 12 12)`}
+        />
+      ))}
+    </>
+  ),
+  // Bild/Foto — steht am Knopf zum Hochladen des Profilbilds.
+  bild: (
+    <>
+      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+      <circle cx="8.5" cy="10" r="1.8" />
+      <P d="M3.5 17.5 9 12.5l3.5 3 3-2.5 5 4.5" />
+    </>
+  ),
   export: (
     <>
       <P d="M12 4v11" />

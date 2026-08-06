@@ -8,6 +8,11 @@ import { wetter, type Weather } from "../modules/wetter/api";
 import { BackupsModal } from "./BackupsModal";
 import { ModuleVerwaltung } from "./ModuleVerwaltung";
 import { Suche } from "./Suche";
+import { Profil } from "./Profil";
+import { Einstellungen } from "./Einstellungen";
+import { Uhr, datumsZeile } from "./Uhr";
+import { useKopf } from "./kopf";
+import { ProfilKnopf } from "./ProfilKnopf";
 import { Icon } from "./Icon";
 import { mitUebergang, uebergangsName } from "./bewegung";
 
@@ -56,19 +61,21 @@ function greeting(h: number): string {
   return "Gute Nacht";
 }
 
-const WEEKDAYS = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"];
-const MONTHS = [
-  "Januar", "Februar", "März", "April", "Mai", "Juni",
-  "Juli", "August", "September", "Oktober", "November", "Dezember",
-];
-
 export function App() {
   const now = useClock();
   // Leer statt eines Namens: der echte kommt aus der Ersteinrichtung. Frueher
   // stand hier ein fester Vorname — das gehoert nicht in ausgelieferten Code.
-  const [me, setMe] = useState<Me>({ name: "", appName: "CTRL·DECK" });
+  const [me, setMe] = useState<Me>({ name: "", appName: "CTRL·DECK", avatar: null });
   const [online, setOnline] = useState<boolean | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Das Profil ist kein Modul (es hat auf der Kachelwand nichts verloren),
+  // aber es fuellt den Hauptbereich wie eines. Deshalb ein eigener Zustand
+  // statt einer erfundenen Modul-ID.
+  const [showProfil, setShowProfil] = useState(false);
+  // Die Einstellungen liegen hinter dem Profil, nicht daneben: man kommt nur
+  // ueber die Profilseite dorthin. Deshalb ein eigener Zustand statt eines
+  // Reiters — zurueck fuehrt immer aufs Profil.
+  const [showEinstellungen, setShowEinstellungen] = useState(false);
   const [showBackups, setShowBackups] = useState(false);
   const [showModule, setShowModule] = useState(false);
   const [showSuche, setShowSuche] = useState(false);
@@ -78,10 +85,23 @@ export function App() {
   // zwangslaeufig dieselbe Reihenfolge.
   const { module, alleSortiert, versteckt, umschalten, speichern, zuruecksetzen, angepasst } =
     useModuleOrder(dashboardModules);
+  // Aussehen des Kopfbereichs. Liegt in einem geteilten Speicher, damit das
+  // Profil beim Verstellen sofort hier ankommt — ohne Zustand durchzureichen.
+  const kopf = useKopf();
 
   useEffect(() => {
     localStorage.setItem("cd_sidebar_collapsed", collapsed ? "1" : "0");
   }, [collapsed]);
+
+  /**
+   * Wechsel in den Hauptbereich — Modul oder Uebersicht.
+   *
+   * Schliesst immer das Profil mit. Ohne das haette die Seitenleiste tote
+   * Knoepfe: man klickt „Haushalt", das Profil bleibt stehen, und es sieht
+   * aus, als sei die App haengengeblieben.
+   */
+  const gehZu = (id: string | null) =>
+    mitUebergang(() => { setShowProfil(false); setShowEinstellungen(false); setActiveId(id); });
 
   /**
    * Strg+K oeffnet die Suche — von ueberall, auch mitten in einem Modul.
@@ -124,8 +144,22 @@ export function App() {
       .catch(() => setOnline(false));
   }, []);
 
-  const time = now.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const dateLine = `${WEEKDAYS[now.getDay()]}, ${now.getDate()}. ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+  // Steht in jedem Kopfbereich direkt neben der Ueberschrift — auf der
+  // Uebersicht also neben „Gute Nacht, <Name>", wo der Name ohnehin schon
+  // steht. Der Zugang darf nicht davon abhaengen, wo man gerade ist,
+  // deshalb auch in Modulansichten und im Profil selbst.
+  const profilKnopf = (
+    <ProfilKnopf
+      name={me.name}
+      bild={me.avatar}
+      aktiv={showProfil || showEinstellungen}
+      onClick={() => mitUebergang(() => { setShowEinstellungen(false); setShowProfil(true); })}
+    />
+  );
+
+  // Wochentage und Monatsnamen wohnen jetzt in Uhr.tsx — sie standen hier
+  // und dort, und beim naechsten Mal weicht eine der beiden Listen ab.
+  const dateLine = datumsZeile(now);
   const active = module.find((m) => m.id === activeId) ?? null;
 
   return (
@@ -134,9 +168,9 @@ export function App() {
 
       <aside className="sidebar">
         <div className="sidebar-head">
-          <button className="brand" onClick={() => mitUebergang(() => setActiveId(null))}>
+          <button className="brand" onClick={() => gehZu(null)}>
             <img className="brand-logo" src="/ctrl_logo.png" alt="" />
-            <span className="brand-name">CTRL·DECK</span>
+            <span className="brand-name">{me.appName}</span>
             <span className="sr-only">— zur Übersicht</span>
           </button>
           <button
@@ -152,15 +186,15 @@ export function App() {
 
         <nav className="nav" aria-label="Module">
           <button
-            className={`nav-item ${activeId === null ? "active" : ""}`}
-            onClick={() => mitUebergang(() => setActiveId(null))}
+            className={`nav-item ${activeId === null && !showProfil && !showEinstellungen ? "active" : ""}`}
+            onClick={() => gehZu(null)}
             title="Übersicht"
-            aria-current={activeId === null ? "page" : undefined}
+            aria-current={activeId === null && !showProfil && !showEinstellungen ? "page" : undefined}
           >
             <span className="nav-ico"><Icon name="uebersicht" /></span> <span className="nav-label">Übersicht</span>
           </button>
           {module.map((m) => (
-            <NavItem key={m.id} m={m} active={activeId === m.id} onClick={() => mitUebergang(() => setActiveId(m.id))} />
+            <NavItem key={m.id} m={m} active={activeId === m.id && !showProfil && !showEinstellungen} onClick={() => gehZu(m.id)} />
           ))}
           {plannedModules.map((m) => (
             <span className="nav-item disabled" key={m.title} title={`${m.title} (bald)`}>
@@ -193,52 +227,151 @@ export function App() {
       </aside>
 
       <main className="main" id="inhalt">
-        {active && active.View ? (
+        {showEinstellungen ? (
           <>
             <header className="hero module-hero">
               <div>
-                <button className="back-link" onClick={() => mitUebergang(() => setActiveId(null))}>
+                {/* Zurueck fuehrt aufs Profil, nicht zur Uebersicht: von dort
+                    ist man gekommen, und der Weg muss umkehrbar sein. */}
+                <button
+                  className="back-link"
+                  onClick={() => mitUebergang(() => { setShowEinstellungen(false); setShowProfil(true); })}
+                >
+                  <Icon name="pfeil-links" /> Profil
+                </button>
+                <div className="hero-titel">
+                  <h1 className="module-h1">
+                    <span className="module-h1-ico"><Icon name="einstellungen" /></span>{" "}
+                    Einstellungen
+                  </h1>
+                </div>
+                <p className="subtitle">Startseite, Konto, Dashboard und deine Daten.</p>
+              </div>
+              <Uhr jetzt={now} />
+            </header>
+            <Einstellungen
+              name={me.name}
+              onModule={() => setShowModule(true)}
+              onBackups={() => setShowBackups(true)}
+              angepasst={angepasst}
+              onReihenfolgeZuruecksetzen={zuruecksetzen}
+              versteckt={versteckt.length}
+            />
+          </>
+        ) : showProfil ? (
+          <>
+            <header className="hero module-hero">
+              <div>
+                <button className="back-link" onClick={() => gehZu(null)}>
                   <Icon name="pfeil-links" /> Übersicht
                 </button>
-                <h1 className="module-h1">
-                  {/* Traegt denselben Uebergangsnamen wie das Symbol auf der
-                      Kachel: der Browser laesst es von dort hierher wandern und
-                      beantwortet damit „woher komme ich". */}
-                  <span
-                    className="module-h1-ico"
-                    style={{ viewTransitionName: uebergangsName(active.id) }}
-                  >
-                    <Icon name={active.icon} />
-                  </span>{" "}
-                  {active.title}
-                </h1>
+                <div className="hero-titel">
+                  <h1 className="module-h1">
+                    <span className="module-h1-ico"><Icon name="person" /></span>{" "}
+                    Profil
+                  </h1>
+                </div>
+                <p className="subtitle">Dein Bild, dein Name — und was in deinem Dashboard steckt.</p>
+              </div>
+              <Uhr jetzt={now} />
+            </header>
+            <Profil
+              me={me}
+              setMe={setMe}
+              onEinstellungen={() => mitUebergang(() => { setShowProfil(false); setShowEinstellungen(true); })}
+              moduleGesamt={alleSortiert.length}
+              versteckt={versteckt.length}
+            />
+          </>
+        ) : active && active.View ? (
+          <>
+            <header className="hero module-hero">
+              <div>
+                <button className="back-link" onClick={() => gehZu(null)}>
+                  <Icon name="pfeil-links" /> Übersicht
+                </button>
+                <div className="hero-titel">
+                  <h1 className="module-h1">
+                    {/* Traegt denselben Uebergangsnamen wie das Symbol auf der
+                        Kachel: der Browser laesst es von dort hierher wandern und
+                        beantwortet damit „woher komme ich". */}
+                    <span
+                      className="module-h1-ico"
+                      style={{ viewTransitionName: uebergangsName(active.id) }}
+                    >
+                      <Icon name={active.icon} />
+                    </span>{" "}
+                    {active.title}
+                  </h1>
+                  {profilKnopf}
+                </div>
                 <p className="subtitle">{active.description}</p>
               </div>
-              <div className="clock">
-                <div className="clock-time">{time}</div>
-                <div className="clock-label">Ortszeit</div>
-              </div>
+              <Uhr jetzt={now} />
             </header>
             <active.View />
           </>
         ) : (
           <>
-            <header className="hero">
+            <header className="hero hero-start">
+              {/*
+                Zwei getrennte Ebenen hinter dem Text, beide nur Zierde
+                (`aria-hidden`, keine Mausziele):
+                  1. das Bild — Deckkraft, Ausschnitt und Unschaerfe kommen aus
+                     den Einstellungen; `scale` verhindert, dass beim
+                     Weichzeichnen die Kanten ausfransen.
+                  2. eine Abdunklung in Seitenfarbe darueber.
+                Ein Verlauf nach unten (im CSS als Maske) sorgt dafuer, dass
+                die Trennlinie des Kopfbereichs nicht auf dem Bild endet.
+              */}
+              {kopf.bild && (
+                <>
+                  <span
+                    className="hero-bild"
+                    aria-hidden="true"
+                    style={{
+                      backgroundImage: `url(${kopf.bild})`,
+                      backgroundPosition: `center ${kopf.position === "oben" ? "top" : kopf.position === "unten" ? "bottom" : "center"}`,
+                      opacity: kopf.staerke / 100,
+                      filter: kopf.weichzeichnen ? `blur(${kopf.weichzeichnen}px)` : undefined,
+                      transform: kopf.weichzeichnen ? `scale(${1 + kopf.weichzeichnen / 40})` : undefined,
+                    }}
+                  />
+                  {kopf.abdunkeln > 0 && (
+                    <span className="hero-dunkel" aria-hidden="true" style={{ opacity: kopf.abdunkeln / 100 }} />
+                  )}
+                </>
+              )}
               <div>
                 <p className="eyebrow">{dateLine}</p>
-                <h1 className="welcome">
-                  {/* Ohne Namen kein Komma — sonst steht dort „Gute Nacht," */}
-                  {greeting(now.getHours())}
-                  {me.name && <>, <span className="grad">{me.name}</span></>}
-                </h1>
+                <div className="hero-titel">
+                  <h1 className="welcome">
+                    {/* Ohne Namen kein Komma — sonst steht dort „Gute Nacht," */}
+                    {greeting(now.getHours())}
+                    {me.name && <>, <span className="grad">{me.name}</span></>}
+                  </h1>
+                  {profilKnopf}
+                </div>
                 <p className="subtitle">Dein privates Control-Dashboard. Alles lokal, alles unter Kontrolle.</p>
               </div>
               <div className="hero-aside">
-                {weather && <HeroWeather data={weather} />}
-                <div className="clock">
-                  <div className="clock-time">{time}</div>
-                  <div className="clock-label">Ortszeit</div>
-                </div>
+                {weather && kopf.wetterZeigen && (
+                  <HeroWeather
+                    data={weather}
+                    details={kopf.wetterDetails}
+                    ort={kopf.wetterOrt}
+                    groesse={kopf.groesse}
+                  />
+                )}
+                {kopf.uhrZeigen && (
+                  <Uhr
+                    jetzt={now}
+                    format={kopf.uhrFormat}
+                    sekunden={kopf.uhrSekunden}
+                    unterzeile={kopf.uhrUnterzeile}
+                    groesse={kopf.groesse}
+                  />
+                )}
               </div>
             </header>
 
@@ -287,7 +420,7 @@ export function App() {
       {showSuche && (
         <Suche
           module={module}
-          onOeffnen={(id) => mitUebergang(() => setActiveId(id))}
+          onOeffnen={gehZu}
           onClose={() => setShowSuche(false)}
         />
       )}

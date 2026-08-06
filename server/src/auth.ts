@@ -306,4 +306,50 @@ export function anmeldeRouten(app: import("express").Express): void {
     beendeSitzung(req, res);
     res.json({ ok: true });
   });
+
+  /**
+   * Passwort aendern.
+   *
+   * **Diese Route liegt unter `/auth/` und umgeht damit den Tuersteher**
+   * (siehe `offenOhneAnmeldung`) — sie muss die Anmeldung deshalb SELBST
+   * pruefen. Ohne das koennte jeder, der die Adresse erreicht, mit dem alten
+   * Passwort als einziger Huerde ein neues setzen.
+   *
+   * Das alte Passwort wird trotz bestehender Anmeldung verlangt: ein
+   * unbeaufsichtigter Browser soll nicht reichen, um jemanden auszusperren.
+   *
+   * `setzePasswort()` wirft ALLE Sitzungen weg — das ist gewollt, ein
+   * Passwortwechsel meldet fremde Geraete ab. Danach bekommt dieser Browser
+   * sofort eine neue Sitzung, sonst spraenge man sich mit dem eigenen
+   * Wechsel selbst vor die Tuer.
+   */
+  app.put("/api/auth/passwort", (req, res) => {
+    if (!istEingerichtet()) return res.status(409).json({ error: "noch nicht eingerichtet" });
+    if (!istAngemeldet(req)) return res.status(401).json({ error: "nicht angemeldet" });
+
+    const aktuell = String(req.body?.aktuell ?? "");
+    const neu = String(req.body?.neu ?? "");
+
+    // Auch hier die Bremse: sonst waere das Aendern-Formular ein bequemer Ort,
+    // um das bestehende Passwort durchzuprobieren.
+    const bis = gesperrtBis(req);
+    if (bis) {
+      const minuten = Math.ceil((bis - Date.now()) / 60000);
+      return res.status(429).json({ error: `Zu viele Versuche. Bitte ${minuten} Minuten warten.` });
+    }
+    if (!passwortPasst(aktuell)) {
+      merkeFehlversuch(req);
+      return res.status(401).json({ error: "Das aktuelle Passwort stimmt nicht." });
+    }
+    versuche.delete(herkunft(req));
+
+    if (neu.length < MIN_LAENGE)
+      return res.status(400).json({ error: `Das neue Passwort braucht mindestens ${MIN_LAENGE} Zeichen.` });
+    if (neu === aktuell)
+      return res.status(400).json({ error: "Das neue Passwort ist das alte." });
+
+    setzePasswort(neu);
+    starteSitzung(req, res);
+    res.json({ ok: true });
+  });
 }
