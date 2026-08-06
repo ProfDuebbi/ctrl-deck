@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { db, getSetting, setSetting } from "../db.js";
-import type { ServerModule, Treffer } from "./index.js";
+import {
+  fruehestes, tageZaehlen,
+  type Akzent, type Diagramm, type Messpunkt, type ProfilBeitrag, type ProfilZahl,
+  type ServerModule, type Treffer,
+} from "./index.js";
 
 // --- Schema ---------------------------------------------------------------
 
@@ -195,9 +199,137 @@ function suche(begriff: string, grenze: number): Treffer[] {
   }));
 }
 
+/**
+ * Meldung ans Profil: je Zaehler der laufende Verbrauch.
+ *
+ * Eine Zahl je Zaehler, nicht eine Summe: kWh und m³ zusammenzuzaehlen waere
+ * eine Zahl ohne Einheit und ohne Sinn. Wo ein Preis hinterlegt ist, steht
+ * unter dem Verbrauch, was er im Monat kostet — die eigentliche Frage.
+ */
+function profil(von: string, bis: string): ProfilBeitrag {
+  const meters = db.prepare("SELECT * FROM meters ORDER BY sort, id").all() as Array<{
+    id: number; name: string; einheit: string;
+    preis: number | null; grundpreis: number | null; abschlag: number | null;
+  }>;
+  if (meters.length === 0) return {};
+
+  const zahlen: ProfilZahl[] = [];
+  for (const m of meters) {
+    const rows = db
+      .prepare("SELECT datum, stand FROM meter_readings WHERE meter_id=? ORDER BY datum ASC, id ASC")
+      .all(m.id) as Array<{ datum: string; stand: number }>;
+    if (rows.length < 2) continue;
+    const letzte = rows[rows.length - 1];
+    const vorige = rows[rows.length - 2];
+    const tage = Math.max(1, Math.round((+new Date(letzte.datum) - +new Date(vorige.datum)) / 864e5));
+    const proTag = (letzte.stand - vorige.stand) / tage;
+
+    const kosten = m.preis ? proTag * 30.4 * m.preis + (m.grundpreis ?? 0) : null;
+    zahlen.push({
+      id: `zaehlerstaende:${m.id}`,
+      // Echtes Minuszeichen statt Bindestrich: ein negativer Verbrauch kommt
+      // vor (ausgetauschter Zaehler) und soll dann auch wie eine Zahl aussehen.
+      wert: `${proTag.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).replace("-", "−")} ${m.einheit}`,
+      label: `${m.name} je Tag`,
+      hinweis: kosten
+        ? `≈ ${kosten.toFixed(0)} € im Monat${m.abschlag ? ` · ${m.abschlag.toFixed(0)} € Abschlag` : ""}`
+        : `${rows.length} Ablesungen`,
+      // Wer mehr verbraucht als der Abschlag deckt, zahlt am Jahresende nach.
+      // Das ist der Moment, in dem die Zahl gelb werden darf.
+      ton: kosten && m.abschlag && kosten > m.abschlag ? "achtung" : "neutral",
+    });
+  }
+  if (zahlen.length === 0) return {};
+
+  const letzte = db
+    .prepare(
+      `SELECT r.id, r.datum, r.stand, m.name, m.einheit FROM meter_readings r
+         JOIN meters m ON m.id = r.meter_id
+        ORDER BY r.datum DESC, r.id DESC LIMIT 4`
+    )
+    .all() as { id: number; datum: string; stand: number; name: string; einheit: string }[];
+
+  return {
+    zahlen,
+    tage: tageZaehlen("meter_readings", "datum", von, bis),
+    ereignisse: letzte.map((r) => ({
+      id: `zaehlerstaende:ablesung:${r.id}`,
+      datum: r.datum,
+      titel: r.name,
+      detail: `${r.stand.toLocaleString("de-DE")} ${r.einheit}`,
+      art: "Ablesung",
+      modul: "zaehlerstaende",
+    })),
+    seit: fruehestes("meter_readings", "datum"),
+  };
+}
+
+/**
+ * Ein Diagramm JE ZAEHLER — nicht eins fuer alle.
+ *
+ * kWh und m³ in ein Bild zu legen hiesse zwei Y-Achsen, und zwei Y-Achsen
+ * erfinden einen Zusammenhang, den es nicht gibt. Getrennte Bilder nebeneinander
+ * sind die ehrliche Form dafuer.
+ *
+ * Gezeigt wird der Verbrauch JE TAG zwischen zwei Ablesungen, nicht der Stand:
+ * Der Stand steigt immer und sagt nichts; die Steigung ist die Aussage. Und es
+ * ist die einzige Form, die auch dann stimmt, wenn zwischen zwei Ablesungen ein
+ * Jahr liegt — bei Strom und Gas ist das hier der Normalfall, die liest der
+ * Hausmeister ab.
+ */
+function diagramme(von: string, bis: string): Diagramm[] {
+  const meters = db.prepare("SELECT id, name, einheit, accent FROM meters ORDER BY sort, id").all() as
+    { id: number; name: string; einheit: string; accent: string }[];
+
+  const out: Diagramm[] = [];
+  for (const m of meters) {
+    const rows = db
+      .prepare("SELECT datum, stand FROM meter_readings WHERE meter_id = ? ORDER BY datum ASC, id ASC")
+      .all(m.id) as { datum: string; stand: number }[];
+
+    const punkte: Messpunkt[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      // Der Punkt gehoert an das ENDE des Zeitraums: der Verbrauch ist erst
+      // mit der zweiten Ablesung bekannt.
+      if (rows[i].datum < von || rows[i].datum > bis) continue;
+      const tage = Math.max(1, Math.round((+new Date(rows[i].datum) - +new Date(rows[i - 1].datum)) / 864e5));
+      punkte.push({
+        x: rows[i].datum.slice(0, 7),
+        y: Math.round(((rows[i].stand - rows[i - 1].stand) / tage) * 100) / 100,
+      });
+    }
+    // Unter drei Punkten ist das keine Entwicklung, sondern eine Zahl — die
+    // steht schon auf der Kachel und im Profil.
+    if (punkte.length < 3) continue;
+
+    const letzter = punkte[punkte.length - 1];
+    out.push({
+      id: `zaehlerstaende:${m.id}`,
+      titel: m.name,
+      hinweis: `Verbrauch je Tag in ${m.einheit}`,
+      form: "verlauf",
+      einheit: m.einheit,
+      breite: "halb",
+      kennzahl: {
+        wert: `${letzter.y.toLocaleString("de-DE", { maximumFractionDigits: 2 })} ${m.einheit}`,
+        label: "zuletzt je Tag",
+      },
+      reihen: [{
+        id: `zaehlerstaende:${m.id}`,
+        name: m.name,
+        farbe: (["blue", "pink", "violet"].includes(m.accent) ? m.accent : "violet") as Akzent,
+        punkte,
+      }],
+    });
+  }
+  return out;
+}
+
 export const zaehlerstaendeModule: ServerModule = {
   id: "zaehlerstaende",
   title: "Zählerstände",
   router,
   suche,
+  profil,
+  diagramme,
 };

@@ -298,6 +298,16 @@ const SYMBOLE = {
       <P d="M12 9.5v4.5M12 17.5v.01" />
     </>
   ),
+  /* Saeulen unterschiedlicher Hoehe auf einer Grundlinie — das Bild, das
+     „Auswertung" meint, ohne eine Lupe oder ein Klemmbrett zu bemuehen. */
+  diagramm: (
+    <>
+      <P d="M4 20h16" />
+      <P d="M7 20v-6" />
+      <P d="M12 20V6" />
+      <P d="M17 20v-9" />
+    </>
+  ),
   rechner: (
     <>
       <rect x="4" y="3" width="16" height="18" rx="2.5" />
@@ -321,6 +331,21 @@ const SYMBOLE = {
   // --- Richtungen -----------------------------------------------------
   zurueck: <P d="M14.5 5.5 8 12l6.5 6.5" />,
   vor: <P d="M9.5 5.5 16 12l-6.5 6.5" />,
+  /* Steigend und fallend — fuer die Veraenderungsangabe an den Diagrammen.
+     Bewusst ein Pfeil mit Knick und kein Dreieck: das Dreieck ist in vielen
+     Oberflaechen „gut/schlecht", der Pfeil sagt nur die Richtung. */
+  "trend-hoch": (
+    <>
+      <P d="M4 17.5 10 11l4 4 6-7" />
+      <P d="M15 8h5v5" />
+    </>
+  ),
+  "trend-runter": (
+    <>
+      <P d="M4 6.5 10 13l4-4 6 7" />
+      <P d="M15 16h5v-5" />
+    </>
+  ),
   "pfeil-links": (
     <>
       <P d="M20 12H4" />

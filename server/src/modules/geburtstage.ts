@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import type { ServerModule, Termin, Treffer } from "./index.js";
+import type { ProfilBeitrag, ProfilZahl, ServerModule, Termin, Treffer } from "./index.js";
 
 // --- Schema ---------------------------------------------------------------
 
@@ -152,10 +152,49 @@ function suche(begriff: string, grenze: number): Treffer[] {
   }));
 }
 
+/**
+ * Meldung ans Profil: wie viele Menschen im Kalender stehen, und wer als
+ * naechstes dran ist.
+ *
+ * KEIN Beitrag zum Aktivitaetsraster und kein Verlauf: Ein Geburtstag ist
+ * kein Tag, an dem ICH etwas getan habe. Das Raster soll die eigene Spur
+ * zeigen, nicht den Kalender fremder Leute.
+ */
+function profil(_von: string, _bis: string): ProfilBeitrag {
+  const rows = db.prepare("SELECT name, tag, monat, verstorben FROM geburtstage").all() as {
+    name: string; tag: number; monat: number; verstorben: number | null;
+  }[];
+  if (rows.length === 0) return {};
+
+  const heute = new Date();
+  const naechster = rows
+    .map((r) => ({ ...r, tage: tageBis(r.tag, r.monat, heute) }))
+    .sort((a, b) => a.tage - b.tage)[0];
+  const gedenktage = rows.filter((r) => r.verstorben).length;
+
+  const zahlen: ProfilZahl[] = [
+    {
+      id: "geburtstage:anzahl",
+      wert: String(rows.length),
+      label: "im Kalender",
+      hinweis: gedenktage > 0 ? `davon ${gedenktage} Gedenktage` : null,
+    },
+    {
+      id: "geburtstage:naechster",
+      wert: naechster.tage === 0 ? "heute" : `${naechster.tage} ${naechster.tage === 1 ? "Tag" : "Tage"}`,
+      label: naechster.verstorben ? "bis zum Gedenktag" : "bis zum nächsten",
+      hinweis: naechster.name,
+      ton: naechster.tage <= 7 ? "achtung" : "neutral",
+    },
+  ];
+  return { zahlen };
+}
+
 export const geburtstageModule: ServerModule = {
   id: "geburtstage",
   title: "Geburtstage",
   router,
   termine,
   suche,
+  profil,
 };

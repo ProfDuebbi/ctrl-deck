@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { db, getSetting, setSetting } from "../db.js";
-import type { ServerModule, Treffer } from "./index.js";
+import {
+  fruehestes, jeMonat, tageZaehlen,
+  type Diagramm, type ProfilBeitrag, type ProfilZahl,
+  type ServerModule, type Treffer,
+} from "./index.js";
 
 // --- Schema ---------------------------------------------------------------
 
@@ -344,9 +348,159 @@ function suche(begriff: string, grenze: number): Treffer[] {
   return treffer;
 }
 
+/**
+ * Meldung ans Profil: wo die Zeit hingegangen ist.
+ *
+ * Stunden statt Minuten, weil „74 h 20" eine Aussage ist und „4460" eine
+ * Zumutung. Die laufende Stempelung bleibt aussen vor — sie steht schon auf
+ * der Kachel und wuerde die Zahl bei jedem Neuladen anders aussehen lassen.
+ */
+function profil(von: string, bis: string): ProfilBeitrag {
+  /**
+   * Ab hundert Stunden fallen die Minuten weg. „399 h 30 min" passt in keine
+   * Kennzahlenspalte, und bei vierhundert Stunden interessiert die halbe
+   * Stunde ohnehin niemanden mehr.
+   */
+  const stunden = (min: number) =>
+    min >= 6000 ? `${Math.round(min / 60)} h` : `${Math.floor(min / 60)} h ${pad(min % 60)} min`;
+  const summe = (sql: string, ...args: unknown[]) =>
+    (db.prepare(sql).get(...(args as [])) as { m: number }).m;
+
+  const heute = new Date();
+  const woche = summe("SELECT COALESCE(SUM(minuten),0) AS m FROM time_entries WHERE datum >= ?", mondayOf(heute));
+  const monat = summe(
+    "SELECT COALESCE(SUM(minuten),0) AS m FROM time_entries WHERE substr(datum,1,7) = ?",
+    localDate(heute).slice(0, 7)
+  );
+  const fenster = summe("SELECT COALESCE(SUM(minuten),0) AS m FROM time_entries WHERE datum BETWEEN ? AND ?", von, bis);
+  const gestempelt = (
+    db.prepare("SELECT COUNT(DISTINCT datum) AS n FROM time_entries WHERE datum BETWEEN ? AND ?").get(von, bis) as { n: number }
+  ).n;
+
+  const top = db
+    .prepare(
+      `SELECT p.name, COALESCE(SUM(t.minuten), 0) AS minuten
+         FROM projects p JOIN time_entries t ON t.projekt_id = p.id
+        WHERE t.datum BETWEEN ? AND ?
+        GROUP BY p.id ORDER BY minuten DESC LIMIT 1`
+    )
+    .get(von, bis) as { name: string; minuten: number } | undefined;
+
+  const letzte = db
+    .prepare(
+      `SELECT t.id, t.datum, t.minuten, t.notiz, p.name AS projekt
+         FROM time_entries t LEFT JOIN projects p ON p.id = t.projekt_id
+        ORDER BY t.datum DESC, t.id DESC LIMIT 6`
+    )
+    .all() as { id: number; datum: string; minuten: number; notiz: string | null; projekt: string | null }[];
+
+  const zahlen: ProfilZahl[] = [
+    { id: "stechuhr:woche", wert: stunden(woche), label: "diese Woche" },
+    { id: "stechuhr:monat", wert: stunden(monat), label: "dieser Monat" },
+    { id: "stechuhr:fenster", wert: stunden(fenster), label: "im Rückblick", hinweis: `an ${gestempelt} Tagen gestempelt` },
+  ];
+  // Ein „Top-Projekt" ohne zweites Projekt ist keine Rangliste, sondern nur
+  // der Name, der ohnehin ueberall steht. Deshalb erst ab zwei.
+  const projekte = (db.prepare("SELECT COUNT(*) AS n FROM projects").get() as { n: number }).n;
+  if (top && projekte > 1) {
+    zahlen.push({
+      id: "stechuhr:top",
+      wert: top.name,
+      label: "meiste Zeit",
+      hinweis: `${stunden(top.minuten)} · ${Math.round((top.minuten / Math.max(1, fenster)) * 100)} % davon`,
+    });
+  }
+
+  return {
+    zahlen,
+    tage: tageZaehlen("time_entries", "datum", von, bis),
+    ereignisse: letzte.map((e) => ({
+      id: `stechuhr:eintrag:${e.id}`,
+      datum: e.datum,
+      titel: e.notiz || e.projekt || "Zeiteintrag",
+      detail: `${stunden(e.minuten)}${e.projekt && e.notiz ? ` · ${e.projekt}` : ""}`,
+      art: "Zeit erfasst",
+      modul: "stechuhr",
+    })),
+    seit: fruehestes("time_entries", "datum"),
+  };
+}
+
+/**
+ * Bilder aus der Stechuhr: der Verlauf und die Verteilung.
+ *
+ * Zwei Fragen, zwei Formen — „wird es mehr oder weniger?" ist eine Zeitreihe,
+ * „wo steckt die Zeit?" ein Groessenvergleich. Beides in ein Bild zu packen
+ * beantwortet keine von beiden.
+ */
+function diagramme(von: string, bis: string): Diagramm[] {
+  const stunden = (min: number) => Math.round((min / 60) * 10) / 10;
+  const summe = (db
+    .prepare("SELECT COALESCE(SUM(minuten),0) AS m FROM time_entries WHERE datum BETWEEN ? AND ?")
+    .get(von, bis) as { m: number }).m;
+  if (summe === 0) return [];
+
+  const out: Diagramm[] = [];
+
+  out.push({
+    id: "stechuhr:verlauf",
+    titel: "Erfasste Zeit",
+    hinweis: "je Monat",
+    form: "verlauf",
+    einheit: "minuten",
+    breite: "voll",
+    kennzahl: { wert: `${stunden(summe).toLocaleString("de-DE")} h`, label: "im Zeitraum" },
+    reihen: [{
+      id: "stechuhr:zeit",
+      name: "Erfasste Zeit",
+      farbe: "blue",
+      punkte: jeMonat("time_entries", "datum", "COALESCE(SUM(minuten),0)", von, bis),
+    }],
+  });
+
+  // Projektfarben kommen aus dem Modul, nicht aus dem Rang der Reihe: wer ein
+  // Projekt wegfiltert, soll die uebrigen in ihrer Farbe wiederfinden.
+  const proProjekt = db
+    .prepare(
+      `SELECT p.id, p.name, p.farbe, COALESCE(SUM(t.minuten), 0) AS minuten
+         FROM projects p JOIN time_entries t ON t.projekt_id = p.id
+        WHERE t.datum BETWEEN ? AND ?
+        GROUP BY p.id HAVING minuten > 0 ORDER BY minuten DESC`
+    )
+    .all(von, bis) as { id: number; name: string; farbe: string; minuten: number }[];
+  const ohne = (db
+    .prepare("SELECT COALESCE(SUM(minuten),0) AS m FROM time_entries WHERE projekt_id IS NULL AND datum BETWEEN ? AND ?")
+    .get(von, bis) as { m: number }).m;
+
+  // Erst ab zwei Posten ist das ein Vergleich; bei einem waere es ein
+  // Balkendiagramm mit einem Balken, und das ist eine Zahl.
+  if (proProjekt.length + (ohne > 0 ? 1 : 0) >= 2) {
+    const punkte = proProjekt.map((p) => ({ x: p.name, y: p.minuten }));
+    if (ohne > 0) punkte.push({ x: "ohne Projekt", y: ohne });
+    out.push({
+      id: "stechuhr:projekte",
+      titel: "Zeit je Projekt",
+      hinweis: `${proProjekt.length} ${proProjekt.length === 1 ? "Projekt" : "Projekte"}`,
+      form: "balken",
+      einheit: "minuten",
+      breite: "halb",
+      reihen: [{
+        id: "stechuhr:projekte",
+        name: "Zeit je Projekt",
+        farbe: "blue",
+        punkte,
+      }],
+    });
+  }
+
+  return out;
+}
+
 export const stechuhrModule: ServerModule = {
   id: "stechuhr",
   title: "Stechuhr",
   router,
   suche,
+  profil,
+  diagramme,
 };

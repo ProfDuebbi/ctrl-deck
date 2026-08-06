@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import type { ServerModule, Termin, Treffer } from "./index.js";
+import {
+  fruehestes, jeMonat, tageZaehlen,
+  type Diagramm, type ProfilBeitrag, type ProfilZahl,
+  type ServerModule, type Termin, type Treffer,
+} from "./index.js";
 
 // --- Schema ---------------------------------------------------------------
 
@@ -970,10 +974,178 @@ function suche(begriff: string, grenze: number): Treffer[] {
   return treffer;
 }
 
+/**
+ * Meldung ans Profil: die vier Zahlen, wegen derer man das Modul aufmacht.
+ *
+ * „Übrig im Monat" ist die wichtigste davon und steht sonst hinter zwei
+ * Klicks (Haushalt → Fixkosten → Fuss der Tabelle). Sie darf als einzige
+ * negativ werden — dann ist sie rot, und das ist keine Dekoration.
+ */
+function profil(von: string, bis: string): ProfilBeitrag {
+  /**
+   * Mit Tausenderpunkt und echtem Minuszeichen (U+2212, nicht dem
+   * Bindestrich). Bei 24 Pixel Schriftgroesse ist „15918,00" eine Ziffernkette
+   * und „15.918,00" eine Zahl.
+   */
+  const euro = (n: number) =>
+    `${n < 0 ? "−" : ""}${Math.abs(n).toLocaleString("de-DE", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} €`;
+
+  const fix = db
+    .prepare("SELECT betrag, intervall FROM fixkosten WHERE aktiv = 1")
+    .all() as { betrag: number; intervall: string }[];
+  const fixProMonat = fix.reduce((s, r) => s + monatsAnteil(r.betrag, r.intervall), 0);
+  const einnahmen = einnahmenProMonat();
+  const uebrig = einnahmen - fixProMonat;
+
+  const jahr = heuteLokal().slice(0, 4);
+  const saldo = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag END), 0) AS ein,
+              COALESCE(SUM(CASE WHEN art = 'ausgang' THEN betrag END), 0) AS aus,
+              COUNT(*) AS n
+         FROM buchungen WHERE substr(datum, 1, 4) = ?`
+    )
+    .get(jahr) as { ein: number; aus: number; n: number };
+
+  const offen = db
+    .prepare(
+      `SELECT COALESCE(SUM(MAX(0, s.gesamt - COALESCE(
+                (SELECT SUM(betrag) FROM schulden_zahlungen z WHERE z.schuld_id = s.id), 0))), 0) AS summe,
+              COUNT(*) AS n
+         FROM schulden s WHERE s.erledigt = 0`
+    )
+    .get() as { summe: number; n: number };
+
+  const letzte = db
+    .prepare(
+      `SELECT id, datum, art, betrag, empfaenger, kategorie, notiz FROM buchungen
+        ORDER BY datum DESC, id DESC LIMIT 6`
+    )
+    .all() as {
+      id: number; datum: string; art: string; betrag: number;
+      empfaenger: string | null; kategorie: string | null; notiz: string | null;
+    }[];
+
+  const zahlen: ProfilZahl[] = [
+    { id: "haushalt:fix", wert: euro(fixProMonat), label: "fest im Monat", hinweis: `${fix.length} Positionen` },
+    {
+      id: "haushalt:uebrig",
+      wert: euro(uebrig),
+      label: "übrig im Monat",
+      hinweis: `${euro(einnahmen)} rein`,
+      ton: uebrig < 0 ? "schlecht" : "gut",
+    },
+    {
+      id: "haushalt:saldo",
+      wert: euro(saldo.ein - saldo.aus),
+      label: `Saldo ${jahr}`,
+      hinweis: `${saldo.n} Buchungen`,
+      ton: saldo.ein - saldo.aus < 0 ? "schlecht" : "gut",
+    },
+  ];
+  if (offen.n > 0) {
+    zahlen.push({
+      id: "haushalt:aussenstaende",
+      wert: euro(offen.summe),
+      label: "Außenstände",
+      hinweis: `bei ${offen.n} ${offen.n === 1 ? "Person" : "Personen"}`,
+      ton: "achtung",
+    });
+  }
+
+  return {
+    zahlen,
+    tage: tageZaehlen("buchungen", "datum", von, bis),
+    ereignisse: letzte.map((b) => ({
+      id: `haushalt:buchung:${b.id}`,
+      datum: b.datum,
+      titel: b.empfaenger || b.notiz || b.kategorie || "Buchung",
+      detail: `${b.art === "eingang" ? "+" : "−"} ${euro(Math.abs(b.betrag))}`,
+      art: b.art === "eingang" ? "Eingang" : "Ausgang",
+      modul: "haushalt",
+    })),
+    seit: fruehestes("buchungen", "datum"),
+  };
+}
+
+/**
+ * Bilder aus dem Haushalt.
+ *
+ * Das erste ist bewusst ein SPIEGEL an einer Nulllinie und kein Liniendiagramm
+ * mit zwei Kurven: Einnahmen und Ausgaben sind keine zwei Messreihen, die man
+ * vergleicht, sondern zwei Richtungen desselben Kontos. Gruen nach oben, rot
+ * nach unten, und der Abstand zur Nulllinie ist die Antwort.
+ */
+function diagramme(von: string, bis: string): Diagramm[] {
+  const euro = (n: number) =>
+    `${n < 0 ? "−" : ""}${Math.abs(n).toLocaleString("de-DE", { maximumFractionDigits: 0 })} €`;
+
+  const out: Diagramm[] = [];
+
+  const ein = jeMonat("buchungen", "datum", "COALESCE(SUM(betrag),0)", von, bis, "art = 'eingang'");
+  const aus = jeMonat("buchungen", "datum", "COALESCE(SUM(betrag),0)", von, bis, "art = 'ausgang'");
+  const summeEin = ein.reduce((s, p) => s + p.y, 0);
+  const summeAus = aus.reduce((s, p) => s + p.y, 0);
+
+  if (summeEin > 0 || summeAus > 0) {
+    out.push({
+      id: "haushalt:kontobewegung",
+      titel: "Ein und aus",
+      hinweis: "je Monat",
+      form: "spiegel",
+      einheit: "euro",
+      breite: "voll",
+      kennzahl: { wert: euro(summeEin - summeAus), label: "Saldo im Zeitraum" },
+      reihen: [
+        { id: "haushalt:ein", name: "Eingang", farbe: "green", punkte: ein },
+        // Nach unten gespiegelt: der Betrag bleibt positiv, die Form traegt
+        // das Vorzeichen. Negative Zahlen in den Daten waeren doppelt gemoppelt.
+        { id: "haushalt:aus", name: "Ausgang", farbe: "red", punkte: aus },
+      ],
+    });
+  }
+
+  // Fixkosten sind ein Bestand, kein Verlauf — sie aendern sich selten, aber
+  // man will wissen, WOHIN sie gehen. Ein Monatsanteil je Kategorie.
+  const kat = db
+    .prepare("SELECT betrag, intervall, kategorie FROM fixkosten WHERE aktiv = 1 AND betrag > 0")
+    .all() as { betrag: number; intervall: string; kategorie: string | null }[];
+  if (kat.length >= 2) {
+    const summen = new Map<string, number>();
+    for (const r of kat) {
+      const k = r.kategorie || "ohne Kategorie";
+      summen.set(k, (summen.get(k) ?? 0) + monatsAnteil(r.betrag, r.intervall));
+    }
+    const punkte = [...summen.entries()]
+      .map(([x, y]) => ({ x, y: Math.round(y * 100) / 100 }))
+      .sort((a, b) => b.y - a.y);
+    out.push({
+      id: "haushalt:fixkosten",
+      titel: "Fixkosten je Kategorie",
+      hinweis: "Monatsanteil, alle Intervalle umgerechnet",
+      form: "balken",
+      einheit: "euro",
+      breite: "halb",
+      kennzahl: {
+        wert: euro(punkte.reduce((s, p) => s + p.y, 0)),
+        label: "fest im Monat",
+      },
+      reihen: [{ id: "haushalt:fix", name: "Fixkosten", farbe: "pink", punkte }],
+    });
+  }
+
+  return out;
+}
+
 export const haushaltModule: ServerModule = {
   id: "haushalt",
   title: "Haushalt",
   router,
   termine,
   suche,
+  profil,
+  diagramme,
 };

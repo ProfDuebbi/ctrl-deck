@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import type { ServerModule, Termin, Treffer } from "./index.js";
+import {
+  fruehestes, jeMonat, tageZaehlen,
+  type Diagramm, type ProfilBeitrag, type ServerModule, type Termin, type Treffer,
+} from "./index.js";
 
 // --- Schema ---------------------------------------------------------------
 
@@ -191,10 +194,87 @@ function suche(begriff: string, grenze: number): Treffer[] {
   }));
 }
 
+/**
+ * Meldung ans Profil: was offen ist, und was man weggearbeitet hat.
+ *
+ * `erledigt_at` steht als UTC-Zeitstempel in der Tabelle (`toISOString()`).
+ * Fuer Tagesgrenzen muss es deshalb durch `date(..., 'localtime')` — sonst
+ * rutscht alles, was nach 22 Uhr erledigt wurde, im Raster einen Tag zurueck.
+ */
+function profil(von: string, bis: string): ProfilBeitrag {
+  const zahl = (sql: string, ...args: unknown[]) =>
+    (db.prepare(sql).get(...(args as [])) as { n: number }).n;
+
+  const heute = iso(new Date());
+  const offen = zahl("SELECT COUNT(*) AS n FROM tasks WHERE erledigt = 0");
+  const ueberfaellig = zahl(
+    "SELECT COUNT(*) AS n FROM tasks WHERE erledigt = 0 AND faellig_datum IS NOT NULL AND faellig_datum < ?",
+    heute
+  );
+  const erledigt = zahl(
+    "SELECT COUNT(*) AS n FROM tasks WHERE erledigt = 1 AND date(erledigt_at, 'localtime') BETWEEN ? AND ?",
+    von,
+    bis
+  );
+
+  const letzte = db
+    .prepare(
+      `SELECT id, titel, prioritaet, date(erledigt_at, 'localtime') AS tag FROM tasks
+        WHERE erledigt = 1 AND erledigt_at IS NOT NULL
+        ORDER BY erledigt_at DESC LIMIT 6`
+    )
+    .all() as { id: number; titel: string; prioritaet: string; tag: string }[];
+
+  return {
+    zahlen: [
+      { id: "aufgaben:offen", wert: String(offen), label: "offen", hinweis: offen === 0 ? "alles abgearbeitet" : null, ton: offen === 0 ? "gut" : "neutral" },
+      { id: "aufgaben:ueberfaellig", wert: String(ueberfaellig), label: "überfällig", ton: ueberfaellig > 0 ? "achtung" : "gut" },
+      { id: "aufgaben:erledigt", wert: String(erledigt), label: "erledigt", hinweis: "im Rückblick" },
+    ],
+    tage: tageZaehlen("tasks", "date(erledigt_at, 'localtime')", von, bis, "erledigt = 1"),
+    ereignisse: letzte.map((r) => ({
+      id: `aufgaben:erledigt:${r.id}`,
+      datum: r.tag,
+      titel: r.titel,
+      detail: r.prioritaet === "hoch" ? "hohe Priorität" : null,
+      art: "Aufgabe erledigt",
+      modul: "aufgaben",
+    })),
+    seit: fruehestes("tasks", "date(created_at, 'localtime')"),
+  };
+}
+
+/**
+ * Bild aus den Aufgaben: was weggearbeitet wurde, Monat fuer Monat.
+ *
+ * Bewusst die ERLEDIGTEN und nicht die offenen: „offen" ist ein Bestand und
+ * gehoert auf eine Kachel, „erledigt" ist eine Bewegung und gehoert in eine
+ * Zeitreihe. `erledigt_at` steht als UTC in der Tabelle, deshalb `localtime`.
+ */
+function diagramme(von: string, bis: string): Diagramm[] {
+  const punkte = jeMonat(
+    "tasks", "date(erledigt_at, 'localtime')", "COUNT(*)", von, bis, "erledigt = 1"
+  );
+  const summe = punkte.reduce((s, p) => s + p.y, 0);
+  if (summe === 0) return [];
+  return [{
+    id: "aufgaben:erledigt",
+    titel: "Erledigte Aufgaben",
+    hinweis: "je Monat",
+    form: "verlauf",
+    einheit: "anzahl",
+    breite: "halb",
+    kennzahl: { wert: String(summe), label: "im Zeitraum" },
+    reihen: [{ id: "aufgaben:erledigt", name: "Erledigt", farbe: "pink", punkte }],
+  }];
+}
+
 export const aufgabenModule: ServerModule = {
   id: "aufgaben",
   title: "Aufgaben",
   router,
   termine,
   suche,
+  profil,
+  diagramme,
 };

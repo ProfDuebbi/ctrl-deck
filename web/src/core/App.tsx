@@ -8,6 +8,7 @@ import { wetter, type Weather } from "../modules/wetter/api";
 import { BackupsModal } from "./BackupsModal";
 import { ModuleVerwaltung } from "./ModuleVerwaltung";
 import { Suche } from "./Suche";
+import { DiagrammAnsicht } from "./DiagrammAnsicht";
 import { Profil } from "./Profil";
 import { Einstellungen } from "./Einstellungen";
 import { Uhr, datumsZeile } from "./Uhr";
@@ -81,6 +82,21 @@ export function App() {
   const [showSuche, setShowSuche] = useState(false);
   const [weather, setWeather] = useState<Weather | null>(null);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("cd_sidebar_collapsed") === "1");
+  /**
+   * Zwei Ansichten fuer dieselbe Uebersicht: die Kachelwand („wie steht es
+   * gerade?") und die Verlaufsbilder („wie ist es dorthin gekommen?").
+   *
+   * Die Wahl liegt im localStorage und NICHT in den Servereinstellungen —
+   * anders als die Modulreihenfolge. Der Unterschied: Die Reihenfolge gehoert
+   * zum Dashboard, diese Wahl gehoert zum Fenster, in dem man gerade sitzt.
+   * Ausserdem laege sie sonst hinter einer Anfrage, und die Seite muesste beim
+   * Laden erst die Kacheln und danach die Diagramme zeigen.
+   *
+   * Vorgabe bleibt die Kachelwand.
+   */
+  const [ansicht, setAnsicht] = useState<"kacheln" | "diagramme">(
+    () => (localStorage.getItem("cd_uebersicht") === "diagramme" ? "diagramme" : "kacheln")
+  );
   // Eine Quelle fuer beide Listen: Kachelwand und Seitenleiste zeigen
   // zwangslaeufig dieselbe Reihenfolge.
   const { module, alleSortiert, versteckt, umschalten, speichern, zuruecksetzen, angepasst } =
@@ -92,6 +108,8 @@ export function App() {
   useEffect(() => {
     localStorage.setItem("cd_sidebar_collapsed", collapsed ? "1" : "0");
   }, [collapsed]);
+
+  useEffect(() => { localStorage.setItem("cd_uebersicht", ansicht); }, [ansicht]);
 
   /**
    * Wechsel in den Hauptbereich — Modul oder Uebersicht.
@@ -155,6 +173,34 @@ export function App() {
       aktiv={showProfil || showEinstellungen}
       onClick={() => mitUebergang(() => { setShowEinstellungen(false); setShowProfil(true); })}
     />
+  );
+
+  /**
+   * Der Umschalter zwischen Kachelwand und Verlaufsbildern.
+   *
+   * Er steht in BEIDEN Ansichten an derselben Stelle in der Abschnittszeile.
+   * Ein Knopf, der beim Umschalten die Seite wechselt, muss dort bleiben, wo
+   * die Hand ihn gerade losgelassen hat — sonst sucht man ihn jedes Mal neu.
+   */
+  const ansichtWechsel = (
+    <div className="ansicht-wahl" role="group" aria-label="Ansicht der Übersicht">
+      <button
+        className={`seg-btn ${ansicht === "kacheln" ? "aktiv" : ""}`}
+        onClick={() => mitUebergang(() => setAnsicht("kacheln"))}
+        aria-pressed={ansicht === "kacheln"}
+        title="Module als Kacheln"
+      >
+        <Icon name="uebersicht" /> Kacheln
+      </button>
+      <button
+        className={`seg-btn ${ansicht === "diagramme" ? "aktiv" : ""}`}
+        onClick={() => mitUebergang(() => setAnsicht("diagramme"))}
+        aria-pressed={ansicht === "diagramme"}
+        title="Verläufe und Verteilungen"
+      >
+        <Icon name="diagramm" /> Verläufe
+      </button>
+    </div>
   );
 
   // Wochentage und Monatsnamen wohnen jetzt in Uhr.tsx — sie standen hier
@@ -271,7 +317,7 @@ export function App() {
                     Profil
                   </h1>
                 </div>
-                <p className="subtitle">Dein Bild, dein Name — und was in deinem Dashboard steckt.</p>
+                <p className="subtitle">Dein Bild, dein Name — und ein Jahr Dashboard auf einen Blick.</p>
               </div>
               <Uhr jetzt={now} />
             </header>
@@ -279,6 +325,7 @@ export function App() {
               me={me}
               setMe={setMe}
               onEinstellungen={() => mitUebergang(() => { setShowProfil(false); setShowEinstellungen(true); })}
+              onModul={gehZu}
               moduleGesamt={alleSortiert.length}
               versteckt={versteckt.length}
             />
@@ -375,6 +422,9 @@ export function App() {
               </div>
             </header>
 
+            {ansicht === "diagramme" ? (
+              <DiagrammAnsicht onModul={gehZu} wechsel={ansichtWechsel} />
+            ) : (
             <section aria-labelledby="titel-module">
               <div className="section-head">
                 <h2 className="section-title" id="titel-module">Module</h2>
@@ -388,6 +438,7 @@ export function App() {
                   <Icon name="uebersicht" /> Module wählen
                   {versteckt.length > 0 && <span className="mv-zaehler">{versteckt.length} aus</span>}
                 </button>
+                {ansichtWechsel}
               </div>
               {/* Jede Karte hat genau EIN Bedienziel: den Titel (plus den
                   Griff zum Verschieben). Sein ausgedehntes ::after macht die
@@ -401,6 +452,7 @@ export function App() {
                 onReihenfolge={speichern}
               />
             </section>
+            )}
           </>
         )}
 

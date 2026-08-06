@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import type { ServerModule, Termin, Treffer } from "./index.js";
+import {
+  fruehestes, jeMonat, tageZaehlen,
+  type Diagramm, type ProfilBeitrag, type ProfilZahl,
+  type ServerModule, type Termin, type Treffer,
+} from "./index.js";
 
 /**
  * FAHRZEUG — Fristen, Kosten, Kilometer.
@@ -256,10 +260,146 @@ function suche(begriff: string, grenze: number): Treffer[] {
   }));
 }
 
+/**
+ * Meldung ans Profil: Strecke, Verbrauch, Kosten — und die naechste Frist.
+ *
+ * Kilometer und Verbrauch werden je Fahrzeug gerechnet und dann summiert.
+ * Ueber alle Fahrzeuge hinweg zu rechnen waere falsch: zwei Tachos ergeben
+ * addiert keine Strecke, und ein Motorrad verzerrt den Schnitt eines Autos.
+ */
+function profil(von: string, bis: string): ProfilBeitrag {
+  const fahrzeuge = db.prepare("SELECT id, name FROM fahrzeuge WHERE aktiv = 1").all() as
+    { id: number; name: string }[];
+  if (fahrzeuge.length === 0) return {};
+
+  let km = 0;
+  let liter = 0;
+  let literStrecke = 0; // nur Strecke zwischen zwei Tankvorgaengen
+  for (const f of fahrzeuge) {
+    const rows = db
+      .prepare(
+        `SELECT datum, art, km, liter FROM fahrzeug_eintraege
+          WHERE fahrzeug_id = ? AND km IS NOT NULL AND datum BETWEEN ? AND ?
+          ORDER BY km`
+      )
+      .all(f.id, von, bis) as { datum: string; art: string; km: number; liter: number | null }[];
+    if (rows.length >= 2) km += rows[rows.length - 1].km - rows[0].km;
+    // Verbrauch: Sprit ab dem ZWEITEN Tankvorgang, denn erst dann ist bekannt,
+    // welche Strecke er getragen hat. Die klassische Voll-zu-Voll-Rechnung.
+    const tanken = rows.filter((r) => r.art === "tanken" && r.liter);
+    if (tanken.length >= 2) {
+      literStrecke += tanken[tanken.length - 1].km - tanken[0].km;
+      for (let i = 1; i < tanken.length; i++) liter += tanken[i].liter ?? 0;
+    }
+  }
+
+  const kosten = db
+    .prepare(
+      `SELECT COALESCE(SUM(betrag), 0) AS summe, COUNT(*) AS n FROM fahrzeug_eintraege
+        WHERE betrag IS NOT NULL AND datum BETWEEN ? AND ?`
+    )
+    .get(von, bis) as { summe: number; n: number };
+
+  const alle = (db.prepare("SELECT * FROM fahrzeuge WHERE aktiv=1").all() as FahrzeugRow[])
+    .flatMap((f) => fristenVon(f).map((fr) => ({ ...fr, fahrzeug: f.name })))
+    .sort((a, b) => a.tage - b.tage);
+  const naechste = alle[0] ?? null;
+
+  const letzte = db
+    .prepare(
+      `SELECT e.id, e.datum, e.art, e.km, e.liter, e.betrag, e.notiz, f.name AS fahrzeug
+         FROM fahrzeug_eintraege e JOIN fahrzeuge f ON f.id = e.fahrzeug_id
+        ORDER BY e.datum DESC, e.id DESC LIMIT 5`
+    )
+    .all() as {
+      id: number; datum: string; art: string; km: number | null;
+      liter: number | null; betrag: number | null; notiz: string | null; fahrzeug: string;
+    }[];
+
+  const zahl = (n: number) => n.toLocaleString("de-DE", { maximumFractionDigits: 0 });
+  // Mit Tausenderpunkt — dieselbe Schreibweise wie im Haushalt.
+  const euro = (n: number) =>
+    `${n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+  const zahlen: ProfilZahl[] = [];
+  if (km > 0) zahlen.push({ id: "fahrzeug:km", wert: `${zahl(km)} km`, label: "gefahren", hinweis: "im Rückblick" });
+  if (liter > 0 && literStrecke > 0) {
+    zahlen.push({
+      id: "fahrzeug:verbrauch",
+      wert: `${((liter / literStrecke) * 100).toFixed(1).replace(".", ",")} l`,
+      label: "auf 100 km",
+      hinweis: `aus ${zahl(literStrecke)} km`,
+    });
+  }
+  if (kosten.n > 0) {
+    zahlen.push({
+      id: "fahrzeug:kosten",
+      wert: euro(kosten.summe),
+      label: "Kosten",
+      hinweis: km > 0 ? `${euro((kosten.summe / km) * 100)} je 100 km` : `${kosten.n} Belege`,
+    });
+  }
+  if (naechste) {
+    zahlen.push({
+      id: "fahrzeug:frist",
+      wert: naechste.tage < 0 ? "abgelaufen" : `${naechste.tage} ${naechste.tage === 1 ? "Tag" : "Tage"}`,
+      label: naechste.label,
+      hinweis: fahrzeuge.length > 1 ? naechste.fahrzeug : null,
+      ton: naechste.status === "abgelaufen" ? "schlecht" : naechste.status === "dringend" ? "achtung" : "neutral",
+    });
+  }
+
+  return {
+    zahlen,
+    tage: tageZaehlen("fahrzeug_eintraege", "datum", von, bis),
+    ereignisse: letzte.map((e) => ({
+      id: `fahrzeug:eintrag:${e.id}`,
+      datum: e.datum,
+      titel: e.notiz || `${e.art[0].toUpperCase()}${e.art.slice(1)} — ${e.fahrzeug}`,
+      detail: [
+        e.liter ? `${e.liter.toFixed(2).replace(".", ",")} l` : null,
+        e.betrag ? euro(e.betrag) : null,
+        e.km ? `${zahl(e.km)} km` : null,
+      ].filter(Boolean).join(" · ") || null,
+      art: e.art === "tanken" ? "Getankt" : e.art === "wartung" ? "Wartung" : e.art === "reparatur" ? "Reparatur" : "Fahrzeug",
+      modul: "fahrzeug",
+    })),
+    seit: fruehestes("fahrzeug_eintraege", "datum"),
+  };
+}
+
+/**
+ * Bild aus dem Fahrzeug: was es je Monat gekostet hat.
+ *
+ * Kosten und nicht Kilometer: Die Strecke steht als Zahl im Profil, aber die
+ * Frage, bei der ein Verlauf hilft, ist „wird das teurer?".
+ */
+function diagramme(von: string, bis: string): Diagramm[] {
+  const punkte = jeMonat(
+    "fahrzeug_eintraege", "datum", "COALESCE(SUM(betrag),0)", von, bis, "betrag IS NOT NULL"
+  );
+  const summe = punkte.reduce((s, p) => s + p.y, 0);
+  if (summe === 0) return [];
+  return [{
+    id: "fahrzeug:kosten",
+    titel: "Fahrzeugkosten",
+    hinweis: "je Monat, Tanken und Werkstatt",
+    form: "verlauf",
+    einheit: "euro",
+    breite: "halb",
+    kennzahl: {
+      wert: `${summe.toLocaleString("de-DE", { maximumFractionDigits: 0 })} €`,
+      label: "im Zeitraum",
+    },
+    reihen: [{ id: "fahrzeug:kosten", name: "Kosten", farbe: "violet", punkte: punkte.map((p) => ({ ...p, y: Math.round(p.y * 100) / 100 })) }],
+  }];
+}
+
 export const fahrzeugModule: ServerModule = {
   id: "fahrzeug",
   title: "Fahrzeug",
   router,
   termine,
   suche,
+  profil,
+  diagramme,
 };

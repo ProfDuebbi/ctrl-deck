@@ -3,7 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { db, getSetting, setSetting } from "../db.js";
 import { ROOT_DIR, EXPORT_DIR } from "../paths.js";
-import type { ServerModule, Treffer } from "./index.js";
+import {
+  fruehestes, jeMonat, tageZaehlen,
+  type Diagramm, type ProfilBeitrag, type ServerModule, type Treffer,
+} from "./index.js";
 
 // --- Schema ---------------------------------------------------------------
 
@@ -322,9 +325,110 @@ function suche(begriff: string, grenze: number): Treffer[] {
   return treffer;
 }
 
+/**
+ * Meldung ans Profil: der Stand des Beweispapiers.
+ *
+ * Beide Seiten des Protokolls kommen vor — die eigenen Zeiten (was man
+ * belegen kann) und die fremden Vorfaelle (worum es ueberhaupt geht). Das
+ * Raster zaehlt beides, denn beides ist ein Tag, an dem man etwas eingetragen
+ * hat.
+ */
+function profil(von: string, bis: string): ProfilBeitrag {
+  const own = ownStats();
+  const fremd = db
+    .prepare("SELECT COUNT(*) AS n FROM noise_foreign")
+    .get() as { n: number };
+  const fremdFenster = db
+    .prepare("SELECT COUNT(*) AS n FROM noise_foreign WHERE datum BETWEEN ? AND ?")
+    .get(von, bis) as { n: number };
+
+  const letzte = db
+    .prepare(
+      `SELECT id, datum, uhrzeit, verursacher, art, bemerkung FROM noise_foreign
+        ORDER BY datum DESC, COALESCE(uhrzeit,'99:99') DESC, id DESC LIMIT 5`
+    )
+    .all() as {
+      id: number; datum: string; uhrzeit: string | null;
+      verursacher: string; art: string; bemerkung: string | null;
+    }[];
+
+  // Zwei Tabellen, ein Raster: die Tageszaehlungen werden addiert.
+  const tage = tageZaehlen("noise_own", "datum", von, bis);
+  for (const [tag, n] of Object.entries(tageZaehlen("noise_foreign", "datum", von, bis))) {
+    tage[tag] = (tage[tag] ?? 0) + n;
+  }
+
+  const erstesEigen = fruehestes("noise_own", "datum");
+  const erstesFremd = fruehestes("noise_foreign", "datum");
+
+  return {
+    zahlen: [
+      { id: "laermprotokoll:fremd", wert: String(fremd.n), label: "fremde Vorfälle", hinweis: `${fremdFenster.n} im Rückblick`, ton: fremd.n > 0 ? "achtung" : "neutral" },
+      { id: "laermprotokoll:eigen", wert: String(own.entries), label: "eigene Einträge" },
+      { id: "laermprotokoll:dauer", wert: fmtDur(own.totalMin), label: "eigene Zeit belegt", hinweis: own.sessions ? `Ø ${fmtDur(own.avgMin)} je Eintrag` : null },
+    ],
+    tage,
+    ereignisse: letzte.map((r) => ({
+      id: `laermprotokoll:fremd:${r.id}`,
+      datum: r.datum,
+      titel: `${r.art} — ${r.verursacher}`,
+      detail: r.uhrzeit ? `${r.uhrzeit} Uhr` : r.bemerkung,
+      art: "Vorfall notiert",
+      modul: "laermprotokoll",
+    })),
+    seit: [erstesEigen, erstesFremd].filter(Boolean).sort()[0] ?? null,
+  };
+}
+
+/**
+ * Bilder aus dem Protokoll: der Verlauf der Vorfaelle und ihre Herkunft.
+ *
+ * Beides zaehlt FREMDE Vorfaelle. Die eigenen Zeiten sind Gegenbeweis, kein
+ * Beschwerdegegenstand — sie in dieselbe Kurve zu legen, wuerde die Aussage
+ * des Bildes verwaessern.
+ */
+function diagramme(von: string, bis: string): Diagramm[] {
+  const punkte = jeMonat("noise_foreign", "datum", "COUNT(*)", von, bis);
+  const summe = punkte.reduce((s, p) => s + p.y, 0);
+  if (summe === 0) return [];
+
+  const out: Diagramm[] = [{
+    id: "laermprotokoll:verlauf",
+    titel: "Fremde Vorfälle",
+    hinweis: "je Monat",
+    form: "verlauf",
+    einheit: "anzahl",
+    breite: "halb",
+    kennzahl: { wert: String(summe), label: "im Zeitraum" },
+    reihen: [{ id: "laermprotokoll:vorfaelle", name: "Vorfälle", farbe: "pink", punkte }],
+  }];
+
+  const jeVerursacher = db
+    .prepare(
+      `SELECT verursacher AS x, COUNT(*) AS y FROM noise_foreign
+        WHERE datum BETWEEN ? AND ?
+        GROUP BY verursacher ORDER BY y DESC`
+    )
+    .all(von, bis) as { x: string; y: number }[];
+  if (jeVerursacher.length >= 2) {
+    out.push({
+      id: "laermprotokoll:verursacher",
+      titel: "Vorfälle je Verursacher",
+      hinweis: null,
+      form: "balken",
+      einheit: "anzahl",
+      breite: "halb",
+      reihen: [{ id: "laermprotokoll:verursacher", name: "Vorfälle", farbe: "pink", punkte: jeVerursacher }],
+    });
+  }
+  return out;
+}
+
 export const laermprotokollModule: ServerModule = {
   id: "laermprotokoll",
   title: "Lärmprotokoll",
   router,
   suche,
+  profil,
+  diagramme,
 };

@@ -3,7 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { db, getSetting, setSetting } from "../db.js";
 import { TRESOR_DIR } from "../paths.js";
-import type { ServerModule, Termin } from "./index.js";
+import {
+  fruehestes, tageZaehlen,
+  type ProfilBeitrag, type ProfilZahl, type ServerModule, type Termin,
+} from "./index.js";
 
 /**
  * TRESOR — Ablage fuer Ausweisnummern, Steuer-ID, Versicherungsnummern usw.
@@ -359,9 +362,61 @@ function termine(von: string, bis: string): Termin[] {
     }));
 }
 
+/**
+ * Meldung ans Profil — und zwar NUR Anzahlen.
+ *
+ * Titel, Werte und Notizen liegen hier als Chiffrat; der Server kennt sie
+ * nicht und soll sie nie kennen. Ein Verlauf mit Eintragsnamen waere genau
+ * der Bruch, gegen den das ganze Modul gebaut ist. Deshalb: kein
+ * `ereignisse`, und die Kategorie bleibt draussen, obwohl sie im Klartext
+ * gespeichert ist — „3 × Ausweis" auf einer Profilseite ist mehr Auskunft,
+ * als ein Tresor geben sollte.
+ */
+function profil(von: string, bis: string): ProfilBeitrag {
+  if (!leseMeta()) return {};
+
+  const anzahl = (db.prepare("SELECT COUNT(*) AS n FROM tresor_eintraege").get() as { n: number }).n;
+  const dateien = db
+    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(groesse),0) AS b FROM tresor_dateien")
+    .get() as { n: number; b: number };
+
+  const rows = db
+    .prepare("SELECT ablauf, vorwarn_tage FROM tresor_eintraege WHERE ablauf IS NOT NULL")
+    .all() as { ablauf: string; vorwarn_tage: number }[];
+  const ablaufend = rows
+    .map((r) => ({ ...r, tage: tageBis(r.ablauf) }))
+    .filter((r) => r.tage <= r.vorwarn_tage)
+    .sort((a, b) => a.tage - b.tage);
+
+  const zahlen: ProfilZahl[] = [
+    {
+      id: "tresor:eintraege",
+      wert: String(anzahl),
+      label: "Einträge",
+      hinweis: dateien.n > 0 ? `${dateien.n} Anhänge · ${(dateien.b / 1048576).toFixed(1).replace(".", ",")} MB` : "verschlüsselt",
+    },
+  ];
+  if (ablaufend.length > 0) {
+    const n = ablaufend[0];
+    zahlen.push({
+      id: "tresor:ablauf",
+      wert: n.tage < 0 ? "abgelaufen" : `${n.tage} ${n.tage === 1 ? "Tag" : "Tage"}`,
+      label: ablaufend.length > 1 ? `bis zum nächsten von ${ablaufend.length}` : "bis zum Ablauf",
+      ton: n.tage < 0 ? "schlecht" : "achtung",
+    });
+  }
+
+  return {
+    zahlen,
+    tage: tageZaehlen("tresor_eintraege", "date(created_at, 'localtime')", von, bis),
+    seit: fruehestes("tresor_eintraege", "date(created_at, 'localtime')"),
+  };
+}
+
 export const tresorModule: ServerModule = {
   id: "tresor",
   title: "Tresor",
   router,
   termine,
+  profil,
 };
