@@ -1,0 +1,27 @@
+node_modules/
+dist/
+*.log
+*.tsbuildinfo
+
+# Umgebungsvariablen (TLS-Pfade, ORIGIN, ...) — koennen Rechnernamen enthalten.
+.env
+.env.*
+
+# Rohe Bildschirmfotos mit echten Daten. Was ins Repo gehoert, liegt
+# geschwaerzt unter docs/screenshots/.
+Screensv1/
+
+# Die Vor-Veroeffentlichungs-Pruefung bleibt privat: ihre Wortliste ist
+# genau das, wonach sie sucht.
+pruefen.mjs
+
+# Der GESAMTE Datenordner bleibt draussen — nicht nur die Datenbank.
+#
+# Vorher stand hier `data/*.db`, und das deckt genau eine Ebene ab. Nicht
+# erfasst waren damit:
+#   data/backups/*.db   — vollstaendige Kopien der Datenbank, also ALLES
+#   data/tresor/*.bin   — die verschluesselten Anhaenge des Tresors
+#   data/exports/       — ausgeleitete Protokolle und Berichte
+#   data/tls/           — privater Schluessel eines Zertifikats
+# Ein einziger `git add .` haette den kompletten Datenbestand ins Repo geholt.
+data/

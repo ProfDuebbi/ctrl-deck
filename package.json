@@ -1,0 +1,24 @@
+{
+  "name": "ctrl-deck",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CTRL·DECK — modulares Control-Dashboard, das komplett lokal läuft",
+  "license": "AGPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ProfDuebbi/ctrl-deck.git"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix web install",
+    "dev": "concurrently -n server,web -c magenta,cyan \"npm --prefix server run dev\" \"npm --prefix web run dev\"",
+    "build": "npm --prefix web run build",
+    "start": "npm run dev",
+    "passwort-neu": "npm --prefix server run passwort-neu"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}
