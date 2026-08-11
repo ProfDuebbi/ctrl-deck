@@ -7,6 +7,8 @@ in einer SQLite-Datei neben dem Programm und gehen nirgendwo hin.
 
 ![Die Startseite von CTRL·DECK](docs/screenshots/uebersicht.png)
 
+<sub>Alle Bilder zeigen eine Demo-Installation mit erfundenen Daten.</sub>
+
 ## Warum
 
 Für jede dieser Aufgaben gibt es eine App, und jede will ein Konto, ein Abo und
@@ -30,7 +32,26 @@ neun Module, eine Datei. Wer es nicht mehr will, löscht den Ordner.
 Dazu im Gerüst: Wetter, globale Suche (`Strg`+`K`), Backups, ein- und
 ausblendbare Module, freie Reihenfolge per Ziehen.
 
-<img src="docs/screenshots/seitenleiste.png" alt="Die Seitenleiste" width="230">
+## Blick hinein
+
+Dieselbe Übersicht, zweite Ansicht: statt der Kacheln die Verläufe aller
+Module — alle Bilder auf denselben Zeitraum.
+
+![Die Übersicht als Verläufe](docs/screenshots/verlaeufe.png)
+
+| | |
+|---|---|
+| ![Lärmprotokoll](docs/screenshots/laermprotokoll.png) | ![Stechuhr](docs/screenshots/stechuhr.png) |
+| **Lärmprotokoll** — Statistik rechnet über den gefilterten Zeitraum, Ausgabe als TXT oder druckfertiger Bericht. | **Stechuhr** — stempeln oder nachtragen, Zeit je Projekt, Verlauf pro Monat. |
+| ![Zählerstände](docs/screenshots/zaehlerstaende.png) | ![Haushalt](docs/screenshots/haushalt.png) |
+| **Zählerstände** — Verbrauch, Hochrechnung und, wenn Tarif und Abschlag hinterlegt sind, Guthaben oder Nachzahlung. | **Haushalt** — Fixkosten mit Kündigungsfristen; was zuerst wegläuft, steht oben. |
+| ![Tresor](docs/screenshots/tresor.png) | ![Geburtstage](docs/screenshots/geburtstage.png) |
+| **Tresor** — im Browser verschlüsselt; Werte bleiben verdeckt, bis man sie aufdeckt. | **Geburtstage** — mit Vorwarnung, Gedenktage getrennt. |
+
+Und die Profilseite: ein Jahr Dashboard auf einen Blick — Aktivitätsraster,
+Serien, Kennzahlen je Modul.
+
+![Die Profilseite als Jahresrückblick](docs/screenshots/profil.png)
 
 ## Loslegen
 
