@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { getSetting, setSetting } from "./db.js";
+import { sicher } from "./route.js";
 
 /**
  * Aussehen des Kopfbereichs auf der Startseite.
@@ -92,8 +93,8 @@ function saeubern(roh: unknown, grundlage: KopfOptionen = VORGABE): KopfOptionen
   };
 }
 
-function gespeicherteOptionen(): KopfOptionen {
-  const roh = getSetting("kopf_optionen");
+async function gespeicherteOptionen(): Promise<KopfOptionen> {
+  const roh = await getSetting("kopf_optionen");
   if (!roh) return VORGABE;
   try {
     return saeubern(JSON.parse(roh));
@@ -104,36 +105,36 @@ function gespeicherteOptionen(): KopfOptionen {
 }
 
 export function kopfRouten(app: Express): void {
-  app.get("/api/kopf", (_req, res) => {
-    res.json({ bild: getSetting("kopf_bild") || null, ...gespeicherteOptionen() });
-  });
+  app.get("/api/kopf", sicher(async (_req, res) => {
+    res.json({ bild: (await getSetting("kopf_bild")) || null, ...(await gespeicherteOptionen()) });
+  }));
 
   /**
    * Teilweise Aenderung, genau wie bei `/api/me`: nur was im Rumpf steht,
    * wird angefasst. `bild: null` loescht — deshalb `in`-Pruefung statt
    * Wahrheitswert, sonst liesse sich das Bild nie wieder loswerden.
    */
-  app.put("/api/kopf", (req, res) => {
+  app.put("/api/kopf", sicher(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
 
     if ("bild" in body) {
       const bild = body.bild;
       if (bild === null || bild === "") {
-        setSetting("kopf_bild", "");
+        await setSetting("kopf_bild", "");
       } else if (typeof bild !== "string" || !BILD_ERLAUBT.test(bild)) {
         return res.status(400).json({ error: "Das ist kein gültiges Bild (PNG, JPEG oder WebP)." });
       } else if (bild.length > BILD_MAX) {
         return res.status(413).json({ error: "Das Bild ist zu groß." });
       } else {
-        setSetting("kopf_bild", bild);
+        await setSetting("kopf_bild", bild);
       }
     }
 
     // Bestehende Werte als Grundlage: wer nur `staerke` schickt, soll nicht
     // alle anderen Einstellungen auf die Vorgabe zuruecksetzen.
-    const neu = saeubern(body, gespeicherteOptionen());
-    setSetting("kopf_optionen", JSON.stringify(neu));
+    const neu = saeubern(body, await gespeicherteOptionen());
+    await setSetting("kopf_optionen", JSON.stringify(neu));
 
-    res.json({ bild: getSetting("kopf_bild") || null, ...neu });
-  });
+    res.json({ bild: (await getSetting("kopf_bild")) || null, ...neu });
+  }));
 }

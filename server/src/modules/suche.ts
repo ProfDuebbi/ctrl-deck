@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { machRouter } from "../route.js";
 import { serverModules, type ServerModule, type Treffer } from "./index.js";
 
 /**
@@ -16,9 +16,9 @@ import { serverModules, type ServerModule, type Treffer } from "./index.js";
 /** Obergrenze je Modul, damit ein datenreiches Modul die Liste nicht fuellt. */
 const JE_MODUL = 6;
 
-const router = Router();
+const router = machRouter();
 
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   const begriff = String(req.query.q ?? "").trim();
   if (begriff.length < 2) return res.json({ begriff, treffer: [], fehler: [] });
 
@@ -32,7 +32,7 @@ router.get("/", (req, res) => {
   for (const mod of serverModules as ServerModule[]) {
     if (!mod.suche) continue;
     try {
-      treffer.push(...mod.suche(sauber, JE_MODUL));
+      treffer.push(...(await mod.suche(sauber, JE_MODUL)));
     } catch (e) {
       fehler.push(mod.id);
       console.warn(`[suche] Modul „${mod.id}" konnte nicht suchen:`, e);

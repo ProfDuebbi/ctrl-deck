@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { machRouter } from "../route.js";
 import { serverModules, type ServerModule, type Termin } from "./index.js";
 
 /**
@@ -58,13 +58,13 @@ function sortiere(a: Termin, b: Termin): number {
  * Ein Modul, das beim Sammeln stolpert, darf nicht den ganzen Faden reissen —
  * dann fehlt eben seine Zeile, und der Grund steht im Log.
  */
-function sammle(von: string, bis: string): { termine: Termin[]; fehler: string[] } {
+async function sammle(von: string, bis: string): Promise<{ termine: Termin[]; fehler: string[] }> {
   const termine: Termin[] = [];
   const fehler: string[] = [];
   for (const mod of serverModules as ServerModule[]) {
     if (!mod.termine) continue;
     try {
-      termine.push(...mod.termine(von, bis));
+      termine.push(...(await mod.termine(von, bis)));
     } catch (e) {
       fehler.push(mod.id);
       console.warn(`[termine] Modul „${mod.id}" konnte nichts liefern:`, e);
@@ -80,18 +80,18 @@ function tageBis(datum: string, heute: string): number {
   return Math.round((Date.UTC(j2, m2 - 1, t2) - Date.UTC(j1, m1 - 1, t1)) / 86_400_000);
 }
 
-const router = Router();
+const router = machRouter();
 
 /**
  * Der Faden. `tage` bestimmt, wie weit nach vorn geschaut wird (1–365).
  * Ueberfaelliges liefern die Module unabhaengig davon mit.
  */
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   const tage = Math.min(Math.max(Number(req.query.tage) || 30, 1), 365);
   const heute = new Date();
   const von = isoLokal(heute);
   const bis = isoLokal(plusTage(heute, tage));
-  const { termine, fehler } = sammle(von, bis);
+  const { termine, fehler } = await sammle(von, bis);
 
   res.json({
     von,
@@ -103,12 +103,12 @@ router.get("/", (req, res) => {
 });
 
 /** Kurzfassung fuer Kachel und Sidebar-Zaehler. */
-router.get("/uebersicht", (req, res) => {
+router.get("/uebersicht", async (req, res) => {
   const tage = Math.min(Math.max(Number(req.query.tage) || 14, 1), 365);
   const heute = new Date();
   const von = isoLokal(heute);
   const bis = isoLokal(plusTage(heute, tage));
-  const { termine } = sammle(von, bis);
+  const { termine } = await sammle(von, bis);
 
   const heuteTermine = termine.filter((t) => t.datum === von);
   const ueberfaellig = termine.filter((t) => t.datum < von);

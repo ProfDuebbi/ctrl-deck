@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { machRouter } from "../route.js";
 import { getSetting, setSetting } from "../db.js";
 import type { ServerModule } from "./index.js";
 
@@ -57,10 +57,10 @@ interface Location {
 // Frueher stand hier ein fest verdrahteter Ort, der bei jedem Start erzwungen
 // wurde — das ging nur, solange diese Installation genau einem Menschen
 // gehoerte. Ohne gespeicherten Ort bleibt die Wetteranzeige einfach leer.
-function savedLocation(): Location | null {
-  const label = getSetting("wetter_label");
-  const lat = getSetting("wetter_lat");
-  const lon = getSetting("wetter_lon");
+async function savedLocation(): Promise<Location | null> {
+  const label = await getSetting("wetter_label");
+  const lat = await getSetting("wetter_lat");
+  const lon = await getSetting("wetter_lon");
   if (!label || !lat || !lon) return null;
   return { label, lat: Number(lat), lon: Number(lon) };
 }
@@ -115,10 +115,10 @@ async function fetchWeather(loc: Location) {
 
 // --- Router ---------------------------------------------------------------
 
-const router = Router();
+const router = machRouter();
 
-router.get("/location", (_req, res) => {
-  res.json(savedLocation());
+router.get("/location", async (_req, res) => {
+  res.json(await savedLocation());
 });
 
 /** Beschriftung eines Treffers: „Kiel, Schleswig-Holstein, DE". */
@@ -165,9 +165,9 @@ router.post("/location", async (req, res) => {
   const lon = Number(req.body?.lon);
   const label = String(req.body?.label ?? "").trim();
   if (label && Number.isFinite(lat) && Number.isFinite(lon)) {
-    setSetting("wetter_label", label);
-    setSetting("wetter_lat", String(lat));
-    setSetting("wetter_lon", String(lon));
+    await setSetting("wetter_label", label);
+    await setSetting("wetter_lat", String(lat));
+    await setSetting("wetter_lon", String(lon));
     cache = null;
     return res.json({ label, lat, lon });
   }
@@ -180,9 +180,9 @@ router.post("/location", async (req, res) => {
     const hit = geo.results?.[0];
     if (!hit) return res.status(404).json({ error: "Ort nicht gefunden" });
     const gefunden = ortsName(hit);
-    setSetting("wetter_label", gefunden);
-    setSetting("wetter_lat", String(hit.latitude));
-    setSetting("wetter_lon", String(hit.longitude));
+    await setSetting("wetter_label", gefunden);
+    await setSetting("wetter_lat", String(hit.latitude));
+    await setSetting("wetter_lon", String(hit.longitude));
     cache = null;
     res.json({ label: gefunden, lat: hit.latitude, lon: hit.longitude });
   } catch (e) {
@@ -191,7 +191,7 @@ router.post("/location", async (req, res) => {
 });
 
 router.get("/current", async (_req, res) => {
-  const loc = savedLocation();
+  const loc = await savedLocation();
   if (!loc) return res.status(404).json({ error: "kein Ort gesetzt" });
   try {
     res.json(await fetchWeather(loc));
@@ -201,7 +201,7 @@ router.get("/current", async (_req, res) => {
 });
 
 router.get("/summary", async (_req, res) => {
-  const loc = savedLocation();
+  const loc = await savedLocation();
   if (!loc) return res.json({ set: false });
   try {
     const w = await fetchWeather(loc);

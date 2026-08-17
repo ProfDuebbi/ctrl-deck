@@ -163,20 +163,20 @@ export interface Diagramm {
  * Tabellen speichern schon ein lokales `datum`, andere ein UTC-`created_at`,
  * das erst durch `date(..., 'localtime')` muss (siehe CLAUDE.md, „Datum").
  */
-export function tageZaehlen(
+export async function tageZaehlen(
   tabelle: string,
   ausdruck: string,
   von: string,
   bis: string,
   wo = ""
-): Record<string, number> {
-  const rows = db
-    .prepare(
-      `SELECT ${ausdruck} AS tag, COUNT(*) AS n FROM ${tabelle}
-        WHERE ${ausdruck} BETWEEN ? AND ? ${wo ? `AND ${wo}` : ""}
-        GROUP BY tag`
-    )
-    .all(von, bis) as { tag: string | null; n: number }[];
+): Promise<Record<string, number>> {
+  const rows = await db.alle<{ tag: string | null; n: number }>(
+    `SELECT ${ausdruck} AS tag, COUNT(*) AS n FROM ${tabelle}
+      WHERE ${ausdruck} BETWEEN ? AND ? ${wo ? `AND ${wo}` : ""}
+      GROUP BY tag`,
+    von,
+    bis
+  );
   const out: Record<string, number> = {};
   for (const r of rows) if (r.tag) out[r.tag] = r.n;
   return out;
@@ -210,21 +210,21 @@ export function monatsReihe(von: string, bis: string): string[] {
  * etwas anderes zaehlt. `datum` muss ein lokales YYYY-MM-DD liefern — bei
  * UTC-Zeitstempeln also `date(spalte, 'localtime')` uebergeben.
  */
-export function jeMonat(
+export async function jeMonat(
   tabelle: string,
   datum: string,
   wert: string,
   von: string,
   bis: string,
   wo = ""
-): Messpunkt[] {
-  const rows = db
-    .prepare(
-      `SELECT substr(${datum}, 1, 7) AS monat, ${wert} AS y FROM ${tabelle}
-        WHERE ${datum} BETWEEN ? AND ? ${wo ? `AND ${wo}` : ""}
-        GROUP BY monat`
-    )
-    .all(von, bis) as { monat: string; y: number | null }[];
+): Promise<Messpunkt[]> {
+  const rows = await db.alle<{ monat: string; y: number | null }>(
+    `SELECT substr(${datum}, 1, 7) AS monat, ${wert} AS y FROM ${tabelle}
+      WHERE ${datum} BETWEEN ? AND ? ${wo ? `AND ${wo}` : ""}
+      GROUP BY monat`,
+    von,
+    bis
+  );
   const gefunden = new Map(rows.map((r) => [r.monat, r.y ?? 0]));
   // Bei „alles" faengt das Fenster im Jahr 1 an — dann beginnt die Achse beim
   // ersten echten Wert statt bei zweitausend leeren Monaten.
@@ -233,8 +233,8 @@ export function jeMonat(
 }
 
 /** Kleinstes Datum aus einer Spalte, oder null bei leerer Tabelle. */
-export function fruehestes(tabelle: string, ausdruck: string): string | null {
-  const r = db.prepare(`SELECT MIN(${ausdruck}) AS d FROM ${tabelle}`).get() as { d: string | null };
+export async function fruehestes(tabelle: string, ausdruck: string): Promise<string | null> {
+  const r = await db.eine<{ d: string | null }>(`SELECT MIN(${ausdruck}) AS d FROM ${tabelle}`);
   return r?.d ?? null;
 }
 
@@ -247,6 +247,19 @@ export interface ServerModule {
   title: string; // Anzeigename
   router: Router; // wird unter /api/<id> eingehaengt
   /**
+   * Legt die Tabellen dieses Moduls an und holt Migrationen nach.
+   *
+   * Stand frueher als `db.exec(...)` einfach im Rumpf der Moduldatei und lief
+   * beim Importieren. Das ging nur, solange die Datenbank synchron war: Jetzt
+   * muss die Verbindung erst stehen, und `await` gibt es im Rumpf einer
+   * importierten Datei nur als Verrenkung mit Zyklus-Risiko. `index.ts` ruft
+   * das hier der Reihe nach auf, bevor irgendeine Route erreichbar ist.
+   *
+   * Muss mehrfaches Aufrufen aushalten (`CREATE TABLE IF NOT EXISTS`,
+   * Seeds hinter einem Merker in `settings`).
+   */
+  einrichten?: () => Promise<void>;
+  /**
    * Optional: Was steht in diesem Modul zwischen `von` und `bis` an?
    *
    * So bleibt der Terminfaden dumm und die Module bleiben Herr ihrer Daten —
@@ -256,7 +269,7 @@ export interface ServerModule {
    * Zaehlerstaende melden bewusst NICHTS: Strom und Gas liest hier einmal im
    * Jahr der Hausmeister ab — „bitte ablesen"-Termine waeren sinnlos.
    */
-  termine?: (von: string, bis: string) => Termin[];
+  termine?: (von: string, bis: string) => Promise<Termin[]>;
   /**
    * Optional: Was in diesem Modul passt zu `begriff`?
    *
@@ -268,7 +281,7 @@ export interface ServerModule {
    * ausschliesslich als Chiffrat. Eine Volltextsuche darueber koennte es nur
    * geben, wenn der Server die Klartexte kennt — und genau das soll er nie.
    */
-  suche?: (begriff: string, grenze: number) => Treffer[];
+  suche?: (begriff: string, grenze: number) => Promise<Treffer[]>;
   /**
    * Optional: Was hat dieses Modul zwischen `von` und `bis` zu erzaehlen?
    *
@@ -278,7 +291,7 @@ export interface ServerModule {
    * Der TRESOR meldet nur ANZAHLEN — Titel und Werte liegen dort als Chiffrat,
    * und die Profilseite ist kein Ort, an dem Klartext auftauchen darf.
    */
-  profil?: (von: string, bis: string) => ProfilBeitrag;
+  profil?: (von: string, bis: string) => Promise<ProfilBeitrag>;
   /**
    * Optional: Was laesst sich in diesem Modul als Bild zeigen?
    *
@@ -291,7 +304,7 @@ export interface ServerModule {
    * hiesse zwei Y-Achsen, und die erfinden einen Zusammenhang, den es nicht
    * gibt. Ein Zaehler, ein Diagramm.
    */
-  diagramme?: (von: string, bis: string) => Diagramm[];
+  diagramme?: (von: string, bis: string) => Promise<Diagramm[]>;
 }
 
 import { termineModule } from "./termine.js";

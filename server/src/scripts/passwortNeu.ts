@@ -12,7 +12,8 @@
  * Der Tresor bleibt davon voellig unberuehrt: sein Master-Passwort kennt der
  * Server nicht, und dieses Skript kann es weder lesen noch aendern.
  */
-import { MIN_LAENGE, istEingerichtet, setzePasswort } from "../auth.js";
+import { MIN_LAENGE, istEingerichtet, richteAuthEin, setzePasswort } from "../auth.js";
+import { starteDatenbank } from "../db.js";
 import { DB_PATH } from "../paths.js";
 
 /** Eingabe ohne Bildschirmecho — ein Passwort gehoert nicht ins Terminalfenster. */
@@ -48,10 +49,15 @@ function frageVerdeckt(frage: string): Promise<string> {
 }
 
 async function main() {
+  // Das Skript laeuft ausserhalb des Servers und muss die Verbindung deshalb
+  // selbst aufbauen — frueher passierte das beim blossen Importieren.
+  await starteDatenbank();
+  await richteAuthEin();
+
   console.log("\n  CTRL·DECK — Anmeldepasswort neu setzen");
   console.log(`  Datenbank: ${DB_PATH}`);
   console.log(
-    istEingerichtet()
+    (await istEingerichtet())
       ? "  Es gibt bereits ein Passwort. Es wird ersetzt."
       : "  Bisher ist kein Passwort gesetzt."
   );
@@ -68,7 +74,7 @@ async function main() {
     process.exit(1);
   }
 
-  setzePasswort(neu);
+  await setzePasswort(neu);
   console.log("\n  Erledigt. Beim nächsten Aufruf im Browser gilt das neue Passwort.\n");
   process.exit(0);
 }

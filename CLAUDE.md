@@ -3,6 +3,13 @@
 Privates, lokal laufendes Control-Dashboard. Vite + React + TypeScript (Port 5180)
 und Express + `node:sqlite` (Port 8787). Start: `start.cmd` oder `npm run dev`.
 
+**Zum Testen nie die laufende Installation benutzen** — dort liegen echte Daten.
+Stattdessen eine isolierte Zweitinstanz: `server/src` in den Scratchpad kopieren,
+`node_modules` als Junction verlinken, `PORT=8799` starten (`ROOT_DIR` leitet
+sich aus dem Dateipfad ab, es entsteht also ein eigenes `data/`). **Beim
+Aufräumen die Junction mit `(Get-Item …).Delete()` lösen, BEVOR
+`Remove-Item -Recurse` läuft**, sonst räumt es das echte `node_modules` mit ab.
+
 ## Gestaltung: das Hausrecht liegt bei theme.css
 
 Diese Oberfläche hat ein **eigenes, bewusst gewähltes Design-System**. Die
@@ -48,11 +55,50 @@ Vortag. Immer `heuteLokal()` (in `haushalt/api.ts` und `haushalt.ts`) bzw.
 `localDate` (Stechuhr) benutzen. Default-Daten nie als Modul-Konstante, sondern
 als Funktion — sonst klebt das Datum am Ladezeitpunkt.
 
+## Datenbank
+
+Seit August 2026 sprechen die Module **nicht mehr direkt mit `node:sqlite`**,
+sondern mit der Schnittstelle in `server/src/db/schnittstelle.ts`. Dahinter
+stecken zwei Treiber: die lokale Datei (`db/sqlite.ts`, Vorgabe) und eine
+angeschlossene Datenbank (`db/libsql.ts`, nur wenn `DB_URL` gesetzt ist).
+
+**Alles ist asynchron.** Es gibt kein `db.prepare()` mehr:
+
+```ts
+await db.alle<T>(sql, ...werte)      // alle Zeilen
+await db.eine<T>(sql, ...werte)      // erste Zeile oder undefined
+await db.schreibe(sql, ...werte)     // { id, zeilen }  (nicht lastInsertRowid/changes)
+await db.exec(sql)                   // Schema, mehrere Anweisungen, keine Platzhalter
+await db.transaktion(async () => …)  // alles oder nichts
+```
+
+Auch `getSetting`/`setSetting` liefern Versprechen.
+
+**Wo gelesen und dann geschrieben wird, gehört eine `transaktion()` drum.**
+Solange die Datenbank synchron war, konnte zwischen zwei Anweisungen nichts
+dazwischenkommen; jetzt bedient Express in jedem `await` die nächste Anfrage.
+Betroffen sind Sperren, Zähler und „gibt es das schon?"-Prüfungen — siehe
+`einnahmenAusfuehren()` in `haushalt.ts` als Beispiel.
+
+Das SQL selbst bleibt SQLite-Dialekt und wird von beiden Treibern verstanden
+(`date(x,'localtime')`, `AUTOINCREMENT`, `ON CONFLICT`, `PRAGMA table_info`,
+`?` als Platzhalter). **Lokal ändert sich durch die Wahlmöglichkeit nichts** —
+ohne `DB_URL` läuft alles wie immer über `data/ctrl-deck.db`, die Tresor-Anhänge
+bleiben Dateien in `data/tresor/`, und gesichert wird per Dateikopie.
+
 ## Module
 
 Ein Feature = ein Backend-Modul (`server/src/modules/<name>.ts`, eintragen in
 `serverModules`) + ein Frontend-Modul (`web/src/modules/<name>/`, eintragen in
 `dashboardModules` in `web/src/core/modules.tsx`). Der Kern bleibt unangetastet.
+
+Zwei Pflichten im Backend-Modul:
+
+- Router mit **`machRouter()`** aus `server/src/route.ts` bauen, nie mit
+  `Router()`. Express 4 kennt keine abgelehnten Versprechen — ohne diese Hülle
+  bekommt eine gescheiterte Anfrage nie eine Antwort, der Browser dreht sich.
+- Tabellen und Migrationen in **`einrichten()`** anlegen, nicht im Dateirumpf.
+  `index.ts` ruft das der Reihe nach auf, bevor der Server lauscht.
 
 ## Tresor
 

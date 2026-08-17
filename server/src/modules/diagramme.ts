@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { machRouter } from "../route.js";
 import { getSetting } from "../db.js";
 import { serverModules, type Diagramm, type ServerModule } from "./index.js";
 
@@ -38,9 +38,9 @@ function fensterStart(heute: Date, monate: number): string {
 }
 
 /** Ausgeblendete Module — dieselbe Einstellung, die die Kachelwand liest. */
-function versteckte(): Set<string> {
+async function versteckte(): Promise<Set<string>> {
   try {
-    const roh = getSetting("module_hidden");
+    const roh = await getSetting("module_hidden");
     const geparst = roh ? JSON.parse(roh) : [];
     return new Set(Array.isArray(geparst) ? geparst.filter((x) => typeof x === "string") : []);
   } catch {
@@ -53,14 +53,14 @@ function hatInhalt(d: Diagramm): boolean {
   return d.reihen.some((r) => r.punkte.some((p) => p.y !== 0));
 }
 
-const router = Router();
+const router = machRouter();
 
 /**
  * Alle Diagramme in einer Antwort. `monate` ist 1–120 (Vorgabe 12); `0` steht
  * fuer „alles, was da ist" und schiebt den Anfang auf ein sehr frueh
  * liegendes Datum.
  */
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   const roh = Number(req.query.monate);
   const alles = roh === 0;
   const monate = alles ? 0 : Math.min(Math.max(Number.isFinite(roh) ? roh : 12, 1), 120);
@@ -69,14 +69,14 @@ router.get("/", (req, res) => {
   const bis = isoLokal(heute);
   const von = alles ? "0001-01-01" : fensterStart(heute, monate);
 
-  const aus = versteckte();
+  const aus = await versteckte();
   const diagramme: Diagramm[] = [];
   const fehler: string[] = [];
 
   for (const mod of serverModules as ServerModule[]) {
     if (!mod.diagramme || aus.has(mod.id)) continue;
     try {
-      for (const d of mod.diagramme(von, bis)) {
+      for (const d of await mod.diagramme(von, bis)) {
         // Ein Diagramm ohne einen einzigen Wert ungleich null ist eine leere
         // Flaeche mit Ueberschrift. Lieber gar nicht zeigen.
         if (hatInhalt(d)) diagramme.push({ ...d, modul: mod.id });

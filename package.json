@@ -1,6 +1,6 @@
 {
   "name": "ctrl-deck",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "CTRL·DECK — modulares Control-Dashboard, das komplett lokal läuft",
   "license": "AGPL-3.0-or-later",

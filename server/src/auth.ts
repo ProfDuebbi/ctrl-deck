@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
-import type { Request, Response, NextFunction } from "express";
+import type { Request, RequestHandler, Response, NextFunction } from "express";
 import { db, setSetting } from "./db.js";
+import { sicher } from "./route.js";
 
 /**
  * Anmeldung — ein Konto pro Installation.
@@ -23,19 +24,26 @@ import { db, setSetting } from "./db.js";
 
 // --- Tabellen -------------------------------------------------------------
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS konto (
-    id       INTEGER PRIMARY KEY CHECK (id = 1),
-    passwort TEXT NOT NULL,
-    angelegt TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS sitzungen (
-    id        TEXT PRIMARY KEY,
-    angelegt  TEXT NOT NULL,
-    laeuft_ab TEXT NOT NULL,
-    zuletzt   TEXT NOT NULL
-  );
-`);
+/**
+ * Legt die Tabellen der Anmeldung an. Laeuft aus `index.ts` direkt nach der
+ * Datenbank und VOR den Modulen — der Tuersteher haengt schliesslich vor allem
+ * anderen und braucht seine Tabellen zuerst.
+ */
+export async function richteAuthEin(): Promise<void> {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS konto (
+      id       INTEGER PRIMARY KEY CHECK (id = 1),
+      passwort TEXT NOT NULL,
+      angelegt TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sitzungen (
+      id        TEXT PRIMARY KEY,
+      angelegt  TEXT NOT NULL,
+      laeuft_ab TEXT NOT NULL,
+      zuletzt   TEXT NOT NULL
+    );
+  `);
+}
 
 // --- Passwoerter ----------------------------------------------------------
 
@@ -76,24 +84,27 @@ function passwortStimmt(klartext: string, gespeichert: string): boolean {
 
 // --- Konto ----------------------------------------------------------------
 
-export function istEingerichtet(): boolean {
-  return !!db.prepare("SELECT 1 FROM konto WHERE id = 1").get();
+export async function istEingerichtet(): Promise<boolean> {
+  return !!(await db.eine("SELECT 1 FROM konto WHERE id = 1"));
 }
 
 /** Legt das Konto an oder ersetzt das Passwort; wirft alle Sitzungen weg. */
-export function setzePasswort(klartext: string): void {
+export async function setzePasswort(klartext: string): Promise<void> {
   if (klartext.length < MIN_LAENGE) throw new Error(`Passwort braucht mindestens ${MIN_LAENGE} Zeichen`);
-  db.prepare(
-    `INSERT INTO konto (id, passwort, angelegt) VALUES (1, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET passwort = excluded.passwort`
-  ).run(hashePasswort(klartext), new Date().toISOString());
-  // Ein Passwortwechsel muss alte Sitzungen ungueltig machen — sonst bleibt
-  // ein Geraet angemeldet, das man gerade aussperren wollte.
-  db.prepare("DELETE FROM sitzungen").run();
+  // Beides oder nichts: Ein neues Passwort ohne das Wegwerfen der Sitzungen
+  // liesse genau die Geraete angemeldet, die man aussperren wollte.
+  await db.transaktion(async () => {
+    await db.schreibe(
+      `INSERT INTO konto (id, passwort, angelegt) VALUES (1, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET passwort = excluded.passwort`,
+      hashePasswort(klartext), new Date().toISOString()
+    );
+    await db.schreibe("DELETE FROM sitzungen");
+  });
 }
 
-function passwortPasst(klartext: string): boolean {
-  const row = db.prepare("SELECT passwort FROM konto WHERE id = 1").get() as { passwort: string } | undefined;
+async function passwortPasst(klartext: string): Promise<boolean> {
+  const row = await db.eine<{ passwort: string }>("SELECT passwort FROM konto WHERE id = 1");
   return !!row && passwortStimmt(klartext, row.passwort);
 }
 
@@ -135,10 +146,11 @@ function ueberHttps(req: Request): boolean {
   return req.secure;
 }
 
-function starteSitzung(req: Request, res: Response): void {
+async function starteSitzung(req: Request, res: Response): Promise<void> {
   const roh = crypto.randomBytes(32).toString("base64url");
   const jetzt = new Date();
-  db.prepare("INSERT INTO sitzungen (id, angelegt, laeuft_ab, zuletzt) VALUES (?, ?, ?, ?)").run(
+  await db.schreibe(
+    "INSERT INTO sitzungen (id, angelegt, laeuft_ab, zuletzt) VALUES (?, ?, ?, ?)",
     fingerabdruck(roh),
     jetzt.toISOString(),
     new Date(jetzt.getTime() + DAUER_MS).toISOString(),
@@ -151,26 +163,26 @@ function starteSitzung(req: Request, res: Response): void {
     path: "/",
     maxAge: DAUER_MS,
   });
-  aufraeumen();
+  await aufraeumen();
 }
 
-function beendeSitzung(req: Request, res: Response): void {
+async function beendeSitzung(req: Request, res: Response): Promise<void> {
   const roh = leseCookie(req, COOKIE);
-  if (roh) db.prepare("DELETE FROM sitzungen WHERE id = ?").run(fingerabdruck(roh));
+  if (roh) await db.schreibe("DELETE FROM sitzungen WHERE id = ?", fingerabdruck(roh));
   res.clearCookie(COOKIE, { path: "/" });
 }
 
 /** Abgelaufene Sitzungen wegwerfen — sonst waechst die Tabelle ewig. */
-function aufraeumen(): void {
-  db.prepare("DELETE FROM sitzungen WHERE laeuft_ab < ?").run(new Date().toISOString());
+async function aufraeumen(): Promise<void> {
+  await db.schreibe("DELETE FROM sitzungen WHERE laeuft_ab < ?", new Date().toISOString());
 }
 
-export function istAngemeldet(req: Request): boolean {
+export async function istAngemeldet(req: Request): Promise<boolean> {
   const roh = leseCookie(req, COOKIE);
   if (!roh) return false;
-  const row = db.prepare("SELECT laeuft_ab FROM sitzungen WHERE id = ?").get(fingerabdruck(roh)) as
-    | { laeuft_ab: string }
-    | undefined;
+  const row = await db.eine<{ laeuft_ab: string }>(
+    "SELECT laeuft_ab FROM sitzungen WHERE id = ?", fingerabdruck(roh)
+  );
   if (!row) return false;
   if (row.laeuft_ab < new Date().toISOString()) return false;
   return true;
@@ -215,34 +227,44 @@ function merkeFehlversuch(req: Request): void {
  * - `/wetter/orte` NUR solange kein Konto existiert — die Ersteinrichtung
  *   braucht die Ortssuche, danach ist sie zu.
  */
-function offenOhneAnmeldung(pfad: string): boolean {
+async function offenOhneAnmeldung(pfad: string): Promise<boolean> {
   if (pfad === "/health") return true;
   if (pfad.startsWith("/auth/")) return true;
-  if (pfad === "/wetter/orte" && !istEingerichtet()) return true;
+  if (pfad === "/wetter/orte" && !(await istEingerichtet())) return true;
   return false;
 }
 
-export function tuersteher(req: Request, res: Response, next: NextFunction): void {
-  if (offenOhneAnmeldung(req.path)) return next();
+/**
+ * Das Tuerschloss vor allen Modulen.
+ *
+ * Durch `sicher()` gefasst, weil ein Fehler beim Nachschlagen der Sitzung
+ * sonst als unbeachtetes Versprechen versickern wuerde — die Anfrage bekaeme
+ * nie eine Antwort, und zwar ausgerechnet an der Stelle, die entscheidet, ob
+ * jemand hereindarf. Ein Fehler MUSS hier zu 500 fuehren, nicht zu Stille.
+ */
+export const tuersteher: RequestHandler = sicher(async (req, res, next) => {
+  if (await offenOhneAnmeldung(req.path)) return next();
   // Solange kein Konto existiert, ist alles zu ausser der Ersteinrichtung.
   // Sonst stuende eine frische Installation bis zum ersten Passwort offen.
-  if (!istEingerichtet()) {
+  if (!(await istEingerichtet())) {
     res.status(401).json({ error: "nicht eingerichtet", einrichten: true });
     return;
   }
-  if (!istAngemeldet(req)) {
+  if (!(await istAngemeldet(req))) {
     res.status(401).json({ error: "nicht angemeldet" });
     return;
   }
   next();
-}
+});
 
 // --- Endpunkte ------------------------------------------------------------
 
 export function anmeldeRouten(app: import("express").Express): void {
-  app.get("/api/auth/status", (req, res) => {
-    res.json({ eingerichtet: istEingerichtet(), angemeldet: istAngemeldet(req) });
-  });
+  // Jeder Handler durch `sicher()`: Diese Routen haengen direkt am `app` und
+  // nicht an einem `machRouter()`, das das sonst uebernimmt.
+  app.get("/api/auth/status", sicher(async (req, res) => {
+    res.json({ eingerichtet: await istEingerichtet(), angemeldet: await istAngemeldet(req) });
+  }));
 
   /**
    * Erster Start: Passwort festlegen, dazu Name und Wetter-Standort. Danach
@@ -254,8 +276,8 @@ export function anmeldeRouten(app: import("express").Express): void {
    * Wetter-Modul (server/src/modules/wetter.ts), werden hier aber mitgesetzt,
    * damit die Ersteinrichtung eine einzige Entscheidung bleibt.
    */
-  app.post("/api/auth/einrichten", (req, res) => {
-    if (istEingerichtet()) return res.status(409).json({ error: "bereits eingerichtet" });
+  app.post("/api/auth/einrichten", sicher(async (req, res) => {
+    if (await istEingerichtet()) return res.status(409).json({ error: "bereits eingerichtet" });
 
     const passwort = String(req.body?.passwort ?? "");
     if (passwort.length < MIN_LAENGE)
@@ -270,21 +292,26 @@ export function anmeldeRouten(app: import("express").Express): void {
     const label = String(ort?.label ?? "").trim();
     const ortOk = label !== "" && Number.isFinite(lat) && Number.isFinite(lon);
 
-    setzePasswort(passwort);
-    setSetting("user_name", name);
-    // Der Standort ist freiwillig — ohne ihn bleibt die Wetteranzeige leer,
-    // alles andere funktioniert.
-    if (ortOk) {
-      setSetting("wetter_label", label);
-      setSetting("wetter_lat", String(lat));
-      setSetting("wetter_lon", String(lon));
-    }
-    starteSitzung(req, res);
+    // Passwort, Name und Ort als EIN Vorgang — sonst kann ein Fehler nach dem
+    // Passwort ein Konto ohne Namen hinterlassen, und dafuer gibt es keine
+    // Oberflaeche zum Nachbessern.
+    await db.transaktion(async () => {
+      await setzePasswort(passwort);
+      await setSetting("user_name", name);
+      // Der Standort ist freiwillig — ohne ihn bleibt die Wetteranzeige leer,
+      // alles andere funktioniert.
+      if (ortOk) {
+        await setSetting("wetter_label", label);
+        await setSetting("wetter_lat", String(lat));
+        await setSetting("wetter_lon", String(lon));
+      }
+    });
+    await starteSitzung(req, res);
     res.json({ ok: true, name, ort: ortOk ? label : null });
-  });
+  }));
 
-  app.post("/api/auth/anmelden", (req, res) => {
-    if (!istEingerichtet()) return res.status(409).json({ error: "noch nicht eingerichtet" });
+  app.post("/api/auth/anmelden", sicher(async (req, res) => {
+    if (!(await istEingerichtet())) return res.status(409).json({ error: "noch nicht eingerichtet" });
 
     const bis = gesperrtBis(req);
     if (bis) {
@@ -293,19 +320,19 @@ export function anmeldeRouten(app: import("express").Express): void {
     }
 
     const passwort = String(req.body?.passwort ?? "");
-    if (!passwortPasst(passwort)) {
+    if (!(await passwortPasst(passwort))) {
       merkeFehlversuch(req);
       return res.status(401).json({ error: "Passwort stimmt nicht." });
     }
     versuche.delete(herkunft(req));
-    starteSitzung(req, res);
+    await starteSitzung(req, res);
     res.json({ ok: true });
-  });
+  }));
 
-  app.post("/api/auth/abmelden", (req, res) => {
-    beendeSitzung(req, res);
+  app.post("/api/auth/abmelden", sicher(async (req, res) => {
+    await beendeSitzung(req, res);
     res.json({ ok: true });
-  });
+  }));
 
   /**
    * Passwort aendern.
@@ -323,9 +350,9 @@ export function anmeldeRouten(app: import("express").Express): void {
    * sofort eine neue Sitzung, sonst spraenge man sich mit dem eigenen
    * Wechsel selbst vor die Tuer.
    */
-  app.put("/api/auth/passwort", (req, res) => {
-    if (!istEingerichtet()) return res.status(409).json({ error: "noch nicht eingerichtet" });
-    if (!istAngemeldet(req)) return res.status(401).json({ error: "nicht angemeldet" });
+  app.put("/api/auth/passwort", sicher(async (req, res) => {
+    if (!(await istEingerichtet())) return res.status(409).json({ error: "noch nicht eingerichtet" });
+    if (!(await istAngemeldet(req))) return res.status(401).json({ error: "nicht angemeldet" });
 
     const aktuell = String(req.body?.aktuell ?? "");
     const neu = String(req.body?.neu ?? "");
@@ -337,7 +364,7 @@ export function anmeldeRouten(app: import("express").Express): void {
       const minuten = Math.ceil((bis - Date.now()) / 60000);
       return res.status(429).json({ error: `Zu viele Versuche. Bitte ${minuten} Minuten warten.` });
     }
-    if (!passwortPasst(aktuell)) {
+    if (!(await passwortPasst(aktuell))) {
       merkeFehlversuch(req);
       return res.status(401).json({ error: "Das aktuelle Passwort stimmt nicht." });
     }
@@ -348,8 +375,8 @@ export function anmeldeRouten(app: import("express").Express): void {
     if (neu === aktuell)
       return res.status(400).json({ error: "Das neue Passwort ist das alte." });
 
-    setzePasswort(neu);
-    starteSitzung(req, res);
+    await setzePasswort(neu);
+    await starteSitzung(req, res);
     res.json({ ok: true });
-  });
+  }));
 }

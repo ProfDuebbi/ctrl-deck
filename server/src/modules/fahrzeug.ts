@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { machRouter } from "../route.js";
 import { db } from "../db.js";
 import {
   fruehestes, jeMonat, tageZaehlen,
@@ -20,7 +20,8 @@ import {
 
 // --- Schema ---------------------------------------------------------------
 
-db.exec(`
+async function einrichten(): Promise<void> {
+  await db.exec(`
   CREATE TABLE IF NOT EXISTS fahrzeuge (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     name              TEXT NOT NULL,
@@ -49,7 +50,8 @@ db.exec(`
     created_at  TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_fz_eintraege ON fahrzeug_eintraege (fahrzeug_id, datum);
-`);
+  `);
+}
 
 const now = () => new Date().toISOString();
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
@@ -128,53 +130,51 @@ function saeubern(b: any): Omit<FahrzeugRow, "id" | "created_at"> | { error: str
 
 // --- Router ---------------------------------------------------------------
 
-const router = Router();
+const router = machRouter();
 
-router.get("/", (_req, res) => {
-  const rows = db
-    .prepare("SELECT * FROM fahrzeuge ORDER BY aktiv DESC, name")
-    .all() as FahrzeugRow[];
+router.get("/", async (_req, res) => {
+  const rows = await db.alle<FahrzeugRow>("SELECT * FROM fahrzeuge ORDER BY aktiv DESC, name");
   res.json(rows.map((f) => ({ ...f, fristen: fristenVon(f) })));
 });
 
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   const d = saeubern(req.body);
   if ("error" in d) return res.status(400).json(d);
-  const info = db
-    .prepare(
-      `INSERT INTO fahrzeuge (name, kennzeichen, art, hu_bis, versicherung_bis, steuer_bis, inspektion_bis, notiz, aktiv, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(d.name, d.kennzeichen, d.art, d.hu_bis, d.versicherung_bis, d.steuer_bis, d.inspektion_bis, d.notiz, d.aktiv, now());
-  res.json({ id: info.lastInsertRowid });
+  const info = await db.schreibe(
+    `INSERT INTO fahrzeuge (name, kennzeichen, art, hu_bis, versicherung_bis, steuer_bis, inspektion_bis, notiz, aktiv, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    d.name, d.kennzeichen, d.art, d.hu_bis, d.versicherung_bis, d.steuer_bis, d.inspektion_bis, d.notiz, d.aktiv, now()
+  );
+  res.json({ id: info.id });
 });
 
-router.put("/:id", (req, res) => {
+router.put("/:id", async (req, res) => {
   const d = saeubern(req.body);
   if ("error" in d) return res.status(400).json(d);
-  db.prepare(
+  await db.schreibe(
     `UPDATE fahrzeuge SET name=?, kennzeichen=?, art=?, hu_bis=?, versicherung_bis=?, steuer_bis=?, inspektion_bis=?, notiz=?, aktiv=?
-      WHERE id=?`
-  ).run(d.name, d.kennzeichen, d.art, d.hu_bis, d.versicherung_bis, d.steuer_bis, d.inspektion_bis, d.notiz, d.aktiv, req.params.id);
+      WHERE id=?`,
+    d.name, d.kennzeichen, d.art, d.hu_bis, d.versicherung_bis, d.steuer_bis, d.inspektion_bis, d.notiz, d.aktiv, req.params.id
+  );
   res.json({ ok: true });
 });
 
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
   // Die Eintraege haengen per FOREIGN KEY dran und gehen mit (PRAGMA
-  // foreign_keys steht in db.ts auf ON).
-  db.prepare("DELETE FROM fahrzeuge WHERE id=?").run(req.params.id);
+  // foreign_keys steht im SQLite-Treiber auf ON).
+  await db.schreibe("DELETE FROM fahrzeuge WHERE id=?", req.params.id);
   res.json({ ok: true });
 });
 
-router.get("/:id/eintraege", (req, res) => {
+router.get("/:id/eintraege", async (req, res) => {
   res.json(
-    db
-      .prepare("SELECT * FROM fahrzeug_eintraege WHERE fahrzeug_id=? ORDER BY datum DESC, id DESC")
-      .all(req.params.id)
+    await db.alle(
+      "SELECT * FROM fahrzeug_eintraege WHERE fahrzeug_id=? ORDER BY datum DESC, id DESC", req.params.id
+    )
   );
 });
 
-router.post("/:id/eintraege", (req, res) => {
+router.post("/:id/eintraege", async (req, res) => {
   const b = req.body ?? {};
   const datum = String(b.datum ?? "").trim();
   if (!ISO.test(datum)) return res.status(400).json({ error: "Bitte ein Datum angeben." });
@@ -182,40 +182,35 @@ router.post("/:id/eintraege", (req, res) => {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : null;
   };
-  const info = db
-    .prepare(
-      `INSERT INTO fahrzeug_eintraege (fahrzeug_id, datum, art, km, liter, betrag, notiz, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      req.params.id,
-      datum,
-      ["tanken", "wartung", "reparatur", "sonstiges"].includes(b.art) ? b.art : "tanken",
-      zahl(b.km),
-      zahl(b.liter),
-      zahl(b.betrag),
-      String(b.notiz ?? "").trim() || null,
-      now()
-    );
-  res.json({ id: info.lastInsertRowid });
+  const info = await db.schreibe(
+    `INSERT INTO fahrzeug_eintraege (fahrzeug_id, datum, art, km, liter, betrag, notiz, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    req.params.id,
+    datum,
+    ["tanken", "wartung", "reparatur", "sonstiges"].includes(b.art) ? b.art : "tanken",
+    zahl(b.km),
+    zahl(b.liter),
+    zahl(b.betrag),
+    String(b.notiz ?? "").trim() || null,
+    now()
+  );
+  res.json({ id: info.id });
 });
 
-router.delete("/eintraege/:id", (req, res) => {
-  db.prepare("DELETE FROM fahrzeug_eintraege WHERE id=?").run(req.params.id);
+router.delete("/eintraege/:id", async (req, res) => {
+  await db.schreibe("DELETE FROM fahrzeug_eintraege WHERE id=?", req.params.id);
   res.json({ ok: true });
 });
 
 /** Zahlen fuer die Kachel. */
-router.get("/uebersicht", (_req, res) => {
-  const rows = db.prepare("SELECT * FROM fahrzeuge WHERE aktiv=1").all() as FahrzeugRow[];
+router.get("/uebersicht", async (_req, res) => {
+  const rows = await db.alle<FahrzeugRow>("SELECT * FROM fahrzeuge WHERE aktiv=1");
   const alle = rows.flatMap((f) => fristenVon(f).map((fr) => ({ ...fr, fahrzeug: f.name })));
   alle.sort((a, b) => a.tage - b.tage);
-  const kosten = db
-    .prepare(
-      `SELECT COALESCE(SUM(betrag), 0) AS summe FROM fahrzeug_eintraege
-        WHERE betrag IS NOT NULL AND datum >= date('now', '-12 months')`
-    )
-    .get() as { summe: number };
+  const kosten = (await db.eine<{ summe: number }>(
+    `SELECT COALESCE(SUM(betrag), 0) AS summe FROM fahrzeug_eintraege
+      WHERE betrag IS NOT NULL AND datum >= date('now', '-12 months')`
+  ))!;
   res.json({
     anzahl: rows.length,
     naechste: alle[0] ?? null,
@@ -225,8 +220,8 @@ router.get("/uebersicht", (_req, res) => {
 });
 
 /** Meldung an den gemeinsamen Terminfaden: die vier Fristen. */
-function termine(von: string, bis: string): Termin[] {
-  const rows = db.prepare("SELECT * FROM fahrzeuge WHERE aktiv=1").all() as FahrzeugRow[];
+async function termine(von: string, bis: string): Promise<Termin[]> {
+  const rows = await db.alle<FahrzeugRow>("SELECT * FROM fahrzeuge WHERE aktiv=1");
   const out: Termin[] = [];
   for (const f of rows) {
     for (const fr of fristenVon(f)) {
@@ -246,11 +241,12 @@ function termine(von: string, bis: string): Termin[] {
 }
 
 /** Meldung an die globale Suche: Name, Kennzeichen, Notizen. */
-function suche(begriff: string, grenze: number): Treffer[] {
+async function suche(begriff: string, grenze: number): Promise<Treffer[]> {
   const m = `%${begriff}%`;
-  const rows = db
-    .prepare("SELECT * FROM fahrzeuge WHERE name LIKE ? OR kennzeichen LIKE ? OR notiz LIKE ? LIMIT ?")
-    .all(m, m, m, grenze) as FahrzeugRow[];
+  const rows = await db.alle<FahrzeugRow>(
+    "SELECT * FROM fahrzeuge WHERE name LIKE ? OR kennzeichen LIKE ? OR notiz LIKE ? LIMIT ?",
+    m, m, m, grenze
+  );
   return rows.map((f) => ({
     id: `fahrzeug:fahrzeug:${f.id}`,
     titel: f.name,
@@ -267,22 +263,22 @@ function suche(begriff: string, grenze: number): Treffer[] {
  * Ueber alle Fahrzeuge hinweg zu rechnen waere falsch: zwei Tachos ergeben
  * addiert keine Strecke, und ein Motorrad verzerrt den Schnitt eines Autos.
  */
-function profil(von: string, bis: string): ProfilBeitrag {
-  const fahrzeuge = db.prepare("SELECT id, name FROM fahrzeuge WHERE aktiv = 1").all() as
-    { id: number; name: string }[];
+async function profil(von: string, bis: string): Promise<ProfilBeitrag> {
+  const fahrzeuge = await db.alle<{ id: number; name: string }>(
+    "SELECT id, name FROM fahrzeuge WHERE aktiv = 1"
+  );
   if (fahrzeuge.length === 0) return {};
 
   let km = 0;
   let liter = 0;
   let literStrecke = 0; // nur Strecke zwischen zwei Tankvorgaengen
   for (const f of fahrzeuge) {
-    const rows = db
-      .prepare(
-        `SELECT datum, art, km, liter FROM fahrzeug_eintraege
-          WHERE fahrzeug_id = ? AND km IS NOT NULL AND datum BETWEEN ? AND ?
-          ORDER BY km`
-      )
-      .all(f.id, von, bis) as { datum: string; art: string; km: number; liter: number | null }[];
+    const rows = await db.alle<{ datum: string; art: string; km: number; liter: number | null }>(
+      `SELECT datum, art, km, liter FROM fahrzeug_eintraege
+        WHERE fahrzeug_id = ? AND km IS NOT NULL AND datum BETWEEN ? AND ?
+        ORDER BY km`,
+      f.id, von, bis
+    );
     if (rows.length >= 2) km += rows[rows.length - 1].km - rows[0].km;
     // Verbrauch: Sprit ab dem ZWEITEN Tankvorgang, denn erst dann ist bekannt,
     // welche Strecke er getragen hat. Die klassische Voll-zu-Voll-Rechnung.
@@ -293,28 +289,25 @@ function profil(von: string, bis: string): ProfilBeitrag {
     }
   }
 
-  const kosten = db
-    .prepare(
-      `SELECT COALESCE(SUM(betrag), 0) AS summe, COUNT(*) AS n FROM fahrzeug_eintraege
-        WHERE betrag IS NOT NULL AND datum BETWEEN ? AND ?`
-    )
-    .get(von, bis) as { summe: number; n: number };
+  const kosten = (await db.eine<{ summe: number; n: number }>(
+    `SELECT COALESCE(SUM(betrag), 0) AS summe, COUNT(*) AS n FROM fahrzeug_eintraege
+      WHERE betrag IS NOT NULL AND datum BETWEEN ? AND ?`,
+    von, bis
+  ))!;
 
-  const alle = (db.prepare("SELECT * FROM fahrzeuge WHERE aktiv=1").all() as FahrzeugRow[])
+  const alle = (await db.alle<FahrzeugRow>("SELECT * FROM fahrzeuge WHERE aktiv=1"))
     .flatMap((f) => fristenVon(f).map((fr) => ({ ...fr, fahrzeug: f.name })))
     .sort((a, b) => a.tage - b.tage);
   const naechste = alle[0] ?? null;
 
-  const letzte = db
-    .prepare(
-      `SELECT e.id, e.datum, e.art, e.km, e.liter, e.betrag, e.notiz, f.name AS fahrzeug
-         FROM fahrzeug_eintraege e JOIN fahrzeuge f ON f.id = e.fahrzeug_id
-        ORDER BY e.datum DESC, e.id DESC LIMIT 5`
-    )
-    .all() as {
-      id: number; datum: string; art: string; km: number | null;
-      liter: number | null; betrag: number | null; notiz: string | null; fahrzeug: string;
-    }[];
+  const letzte = await db.alle<{
+    id: number; datum: string; art: string; km: number | null;
+    liter: number | null; betrag: number | null; notiz: string | null; fahrzeug: string;
+  }>(
+    `SELECT e.id, e.datum, e.art, e.km, e.liter, e.betrag, e.notiz, f.name AS fahrzeug
+       FROM fahrzeug_eintraege e JOIN fahrzeuge f ON f.id = e.fahrzeug_id
+      ORDER BY e.datum DESC, e.id DESC LIMIT 5`
+  );
 
   const zahl = (n: number) => n.toLocaleString("de-DE", { maximumFractionDigits: 0 });
   // Mit Tausenderpunkt — dieselbe Schreibweise wie im Haushalt.
@@ -350,7 +343,7 @@ function profil(von: string, bis: string): ProfilBeitrag {
 
   return {
     zahlen,
-    tage: tageZaehlen("fahrzeug_eintraege", "datum", von, bis),
+    tage: await tageZaehlen("fahrzeug_eintraege", "datum", von, bis),
     ereignisse: letzte.map((e) => ({
       id: `fahrzeug:eintrag:${e.id}`,
       datum: e.datum,
@@ -363,7 +356,7 @@ function profil(von: string, bis: string): ProfilBeitrag {
       art: e.art === "tanken" ? "Getankt" : e.art === "wartung" ? "Wartung" : e.art === "reparatur" ? "Reparatur" : "Fahrzeug",
       modul: "fahrzeug",
     })),
-    seit: fruehestes("fahrzeug_eintraege", "datum"),
+    seit: await fruehestes("fahrzeug_eintraege", "datum"),
   };
 }
 
@@ -373,8 +366,8 @@ function profil(von: string, bis: string): ProfilBeitrag {
  * Kosten und nicht Kilometer: Die Strecke steht als Zahl im Profil, aber die
  * Frage, bei der ein Verlauf hilft, ist „wird das teurer?".
  */
-function diagramme(von: string, bis: string): Diagramm[] {
-  const punkte = jeMonat(
+async function diagramme(von: string, bis: string): Promise<Diagramm[]> {
+  const punkte = await jeMonat(
     "fahrzeug_eintraege", "datum", "COALESCE(SUM(betrag),0)", von, bis, "betrag IS NOT NULL"
   );
   const summe = punkte.reduce((s, p) => s + p.y, 0);
@@ -398,6 +391,7 @@ export const fahrzeugModule: ServerModule = {
   id: "fahrzeug",
   title: "Fahrzeug",
   router,
+  einrichten,
   termine,
   suche,
   profil,

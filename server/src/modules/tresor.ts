@@ -1,7 +1,8 @@
-import { Router, raw } from "express";
+import { raw } from "express";
+import { machRouter } from "../route.js";
 import fs from "node:fs";
 import path from "node:path";
-import { db, getSetting, setSetting } from "../db.js";
+import { db, getSetting, setSetting, sicherungMoeglich } from "../db.js";
 import { TRESOR_DIR } from "../paths.js";
 import {
   fruehestes, tageZaehlen,
@@ -24,7 +25,8 @@ import {
 
 // --- Schema ---------------------------------------------------------------
 
-db.exec(`
+async function einrichten(): Promise<void> {
+  await db.exec(`
   CREATE TABLE IF NOT EXISTS tresor_eintraege (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     kategorie    TEXT NOT NULL DEFAULT 'sonstiges',  -- Klartext (nur Rubrik)
@@ -47,11 +49,41 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_tresor_dateien_eintrag ON tresor_dateien (eintrag_id);
-`);
+  `);
 
-// Anhaenge liegen als eigene Dateien auf der Platte (TRESOR_DIR, angelegt in
-// paths.ts) — verschluesselt, der Dateiname ist nur die laufende Nummer. Ohne
-// Master-Passwort ist das Rauschen. Die Sicherung in db.ts nimmt den Ordner mit.
+  /*
+   * `inhalt` kam nachtraeglich dazu und ist der Anhang selbst — als Chiffrat,
+   * versteht sich. Die Spalte bleibt NULL, solange die Anhaenge als Dateien in
+   * `data/tresor/` liegen; das ist bei einer lokalen Installation der Normal-
+   * und Dauerzustand und aendert sich auch nicht.
+   *
+   * Gefuellt wird sie nur, wenn eine eigene Datenbank angeschlossen ist. Dann
+   * gibt es naemlich kein verlaessliches Dateisystem: Ein Container wirft seine
+   * Platte beim Neustart weg, und ein Tresoreintrag zeigte danach auf einen
+   * Anhang, den es nicht mehr gibt. Wo die Daten liegen, muessen auch die
+   * Anhaenge liegen.
+   */
+  const spalten = new Set(
+    (await db.alle<{ name: string }>("PRAGMA table_info(tresor_dateien)")).map((c) => c.name)
+  );
+  if (!spalten.has("inhalt")) await db.exec("ALTER TABLE tresor_dateien ADD COLUMN inhalt BLOB");
+}
+
+/*
+ * Wo ein Anhang liegt, haengt davon ab, wo die Datenbank liegt.
+ *
+ * LOKAL (Vorgabe): als eigene Datei in `data/tresor/` — verschluesselt, der
+ * Dateiname ist nur die laufende Nummer. Ohne Master-Passwort ist das Rauschen.
+ * Die Sicherung in db.ts nimmt den Ordner gepaart mit der `.db` mit; daran
+ * aendert sich nichts, und bestehende Anhaenge bleiben genau da, wo sie sind.
+ *
+ * ANGESCHLOSSENE DATENBANK: in der Spalte `tresor_dateien.inhalt`. Sonst waere
+ * die halbe Ablage auf einem Rechner, der die Daten gar nicht mehr haelt.
+ *
+ * Gelesen wird IMMER beides — erst die Spalte, dann die Datei. Dadurch bleibt
+ * ein Bestand lesbar, der vor einem Umzug entstanden ist.
+ */
+const inDatenbank = () => !sicherungMoeglich();
 const dateiPfad = (id: number | bigint) => path.join(TRESOR_DIR, `${id}.bin`);
 const now = () => new Date().toISOString();
 
@@ -68,8 +100,8 @@ interface TresorMeta {
   changed_at: string;
 }
 
-function leseMeta(): TresorMeta | null {
-  const roh = getSetting("tresor_meta");
+async function leseMeta(): Promise<TresorMeta | null> {
+  const roh = await getSetting("tresor_meta");
   if (!roh) return null;
   try {
     return JSON.parse(roh) as TresorMeta;
@@ -123,15 +155,14 @@ function tageBis(datum: string): number {
 
 const ISO_DATUM = /^\d{4}-\d{2}-\d{2}$/;
 
-function dateienZu(ids: number[]): Map<number, unknown[]> {
+async function dateienZu(ids: number[]): Promise<Map<number, unknown[]>> {
   const map = new Map<number, unknown[]>();
   if (ids.length === 0) return map;
-  const rows = db
-    .prepare(
-      `SELECT id, eintrag_id, dateiname, groesse, created_at FROM tresor_dateien
-       WHERE eintrag_id IN (${ids.map(() => "?").join(",")}) ORDER BY id`
-    )
-    .all(...ids) as { id: number; eintrag_id: number }[];
+  const rows = await db.alle<{ id: number; eintrag_id: number }>(
+    `SELECT id, eintrag_id, dateiname, groesse, created_at FROM tresor_dateien
+     WHERE eintrag_id IN (${ids.map(() => "?").join(",")}) ORDER BY id`,
+    ...ids
+  );
   for (const r of rows) {
     if (!map.has(r.eintrag_id)) map.set(r.eintrag_id, []);
     map.get(r.eintrag_id)!.push(r);
@@ -147,11 +178,11 @@ function feld(v: unknown): string | null {
 
 // --- Router ---------------------------------------------------------------
 
-const router = Router();
+const router = machRouter();
 
 /** Ist der Tresor eingerichtet? Liefert das Paeckchen zum Entsperren mit. */
-router.get("/meta", (_req, res) => {
-  const meta = leseMeta();
+router.get("/meta", async (_req, res) => {
+  const meta = await leseMeta();
   res.json({ eingerichtet: !!meta, meta });
 });
 
@@ -159,13 +190,13 @@ router.get("/meta", (_req, res) => {
  * Zustand fuer Kachel und Badge — beantwortbar OHNE Passwort, weil nur
  * Anzahlen und Ablaufdaten hineinfliessen.
  */
-router.get("/status", (_req, res) => {
-  const meta = leseMeta();
-  const anzahl = (db.prepare("SELECT COUNT(*) AS n FROM tresor_eintraege").get() as { n: number }).n;
-  const dateien = (db.prepare("SELECT COUNT(*) AS n FROM tresor_dateien").get() as { n: number }).n;
-  const rows = db
-    .prepare("SELECT id, kategorie, ablauf, vorwarn_tage FROM tresor_eintraege WHERE ablauf IS NOT NULL")
-    .all() as { id: number; kategorie: string; ablauf: string; vorwarn_tage: number }[];
+router.get("/status", async (_req, res) => {
+  const meta = await leseMeta();
+  const anzahl = (await db.eine<{ n: number }>("SELECT COUNT(*) AS n FROM tresor_eintraege"))!.n;
+  const dateien = (await db.eine<{ n: number }>("SELECT COUNT(*) AS n FROM tresor_dateien"))!.n;
+  const rows = await db.alle<{ id: number; kategorie: string; ablauf: string; vorwarn_tage: number }>(
+    "SELECT id, kategorie, ablauf, vorwarn_tage FROM tresor_eintraege WHERE ablauf IS NOT NULL"
+  );
 
   const ablaufend = rows
     .map((r) => ({ ...r, tageBis: tageBis(r.ablauf) }))
@@ -176,12 +207,19 @@ router.get("/status", (_req, res) => {
 });
 
 /** Ersteinrichtung. Laeuft nur, solange es noch nichts zu verlieren gibt. */
-router.post("/init", (req, res) => {
-  if (leseMeta()) return res.status(409).json({ error: "Tresor ist bereits eingerichtet" });
+router.post("/init", async (req, res) => {
   const meta = pruefeMeta(req.body?.meta);
   if (!meta) return res.status(400).json({ error: "unvollständige Tresor-Daten" });
-  meta.created_at = now();
-  setSetting("tresor_meta", JSON.stringify(meta));
+  // Pruefen und Setzen gehoeren zusammen: Zwei Einrichtungsversuche kurz
+  // hintereinander duerfen nicht beide durchkommen — der zweite ersetzte sonst
+  // den Schluessel des ersten, und alles damit Verschluesselte waere verloren.
+  const ok = await db.transaktion(async () => {
+    if (await leseMeta()) return false;
+    meta.created_at = now();
+    await setSetting("tresor_meta", JSON.stringify(meta));
+    return true;
+  });
+  if (!ok) return res.status(409).json({ error: "Tresor ist bereits eingerichtet" });
   res.json({ ok: true, meta });
 });
 
@@ -190,24 +228,30 @@ router.post("/init", (req, res) => {
  * schickt nur das neue Paeckchen. `bisher` ist das alte Salz — damit ein alter,
  * offen gebliebener Tab nicht einen zwischenzeitlichen Wechsel ueberschreibt.
  */
-router.put("/passwort", (req, res) => {
-  const alt = leseMeta();
-  if (!alt) return res.status(409).json({ error: "Tresor ist nicht eingerichtet" });
-  if (String(req.body?.bisher ?? "") !== alt.salt)
-    return res.status(409).json({ error: "Der Tresor wurde zwischenzeitlich geändert — bitte neu laden." });
+router.put("/passwort", async (req, res) => {
   const meta = pruefeMeta(req.body?.meta);
   if (!meta) return res.status(400).json({ error: "unvollständige Tresor-Daten" });
-  meta.created_at = alt.created_at;
-  setSetting("tresor_meta", JSON.stringify(meta));
+  // Das Lesen des alten Salzes und das Schreiben des neuen Paeckchens gehoeren
+  // in eine Klammer — genau davor soll `bisher` ja schuetzen.
+  const stand = await db.transaktion(async () => {
+    const alt = await leseMeta();
+    if (!alt) return "nicht-eingerichtet" as const;
+    if (String(req.body?.bisher ?? "") !== alt.salt) return "veraltet" as const;
+    meta.created_at = alt.created_at;
+    await setSetting("tresor_meta", JSON.stringify(meta));
+    return "ok" as const;
+  });
+  if (stand === "nicht-eingerichtet")
+    return res.status(409).json({ error: "Tresor ist nicht eingerichtet" });
+  if (stand === "veraltet")
+    return res.status(409).json({ error: "Der Tresor wurde zwischenzeitlich geändert — bitte neu laden." });
   res.json({ ok: true, meta });
 });
 
 /** Alle Eintraege — als Chiffrat. Entschluesselt wird im Browser. */
-router.get("/", (_req, res) => {
-  const rows = db
-    .prepare("SELECT * FROM tresor_eintraege ORDER BY kategorie, id")
-    .all() as unknown as EintragRow[];
-  const anhaenge = dateienZu(rows.map((r) => r.id));
+router.get("/", async (_req, res) => {
+  const rows = await db.alle<EintragRow>("SELECT * FROM tresor_eintraege ORDER BY kategorie, id");
+  const anhaenge = await dateienZu(rows.map((r) => r.id));
   res.json(
     rows.map((r) => ({
       ...r,
@@ -237,36 +281,37 @@ function rumpf(req: { body?: Record<string, unknown> }) {
   };
 }
 
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   const d = rumpf(req);
   if ("error" in d) return res.status(400).json({ error: d.error });
-  const info = db
-    .prepare(
-      `INSERT INTO tresor_eintraege (kategorie, vorlage, titel, wert, notiz, ablauf, vorwarn_tage, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(d.kategorie, d.vorlage, d.titel, d.wert, d.notiz, d.ablauf, d.vorwarn_tage, now(), now());
-  res.json({ id: Number(info.lastInsertRowid) });
+  const info = await db.schreibe(
+    `INSERT INTO tresor_eintraege (kategorie, vorlage, titel, wert, notiz, ablauf, vorwarn_tage, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    d.kategorie, d.vorlage, d.titel, d.wert, d.notiz, d.ablauf, d.vorwarn_tage, now(), now()
+  );
+  res.json({ id: info.id });
 });
 
-router.put("/:id", (req, res) => {
+router.put("/:id", async (req, res) => {
   const d = rumpf(req);
   if ("error" in d) return res.status(400).json({ error: d.error });
-  const info = db
-    .prepare(
-      `UPDATE tresor_eintraege SET kategorie=?, vorlage=?, titel=?, wert=?, notiz=?, ablauf=?, vorwarn_tage=?, updated_at=?
-       WHERE id=?`
-    )
-    .run(d.kategorie, d.vorlage, d.titel, d.wert, d.notiz, d.ablauf, d.vorwarn_tage, now(), req.params.id);
-  if (info.changes === 0) return res.status(404).json({ error: "Eintrag nicht gefunden" });
+  const info = await db.schreibe(
+    `UPDATE tresor_eintraege SET kategorie=?, vorlage=?, titel=?, wert=?, notiz=?, ablauf=?, vorwarn_tage=?, updated_at=?
+     WHERE id=?`,
+    d.kategorie, d.vorlage, d.titel, d.wert, d.notiz, d.ablauf, d.vorwarn_tage, now(), req.params.id
+  );
+  if (info.zeilen === 0) return res.status(404).json({ error: "Eintrag nicht gefunden" });
   res.json({ ok: true });
 });
 
-router.delete("/:id", (req, res) => {
+router.delete("/:id", async (req, res) => {
   const id = Number(req.params.id);
   // Die Datenbankzeilen raeumt der Fremdschluessel weg, die Dateien nicht.
-  const dateien = db.prepare("SELECT id FROM tresor_dateien WHERE eintrag_id=?").all(id) as { id: number }[];
-  db.prepare("DELETE FROM tresor_eintraege WHERE id=?").run(id);
+  const dateien = await db.transaktion(async () => {
+    const liste = await db.alle<{ id: number }>("SELECT id FROM tresor_dateien WHERE eintrag_id=?", id);
+    await db.schreibe("DELETE FROM tresor_eintraege WHERE id=?", id);
+    return liste;
+  });
   for (const d of dateien) {
     try { fs.rmSync(dateiPfad(d.id)); } catch { /* schon weg */ }
   }
@@ -280,10 +325,10 @@ router.delete("/:id", (req, res) => {
  * Dateiname kommt als Chiffrat im Kopf mit, weil "Steuerbescheid_2024.pdf"
  * selbst schon eine Auskunft ist.
  */
-router.post("/:id/dateien", raw({ type: "application/octet-stream", limit: "64mb" }), (req, res) => {
-  const eintrag = db.prepare("SELECT id FROM tresor_eintraege WHERE id=?").get(req.params.id) as
-    | { id: number }
-    | undefined;
+router.post("/:id/dateien", raw({ type: "application/octet-stream", limit: "64mb" }), async (req, res) => {
+  const eintrag = await db.eine<{ id: number }>(
+    "SELECT id FROM tresor_eintraege WHERE id=?", req.params.id
+  );
   if (!eintrag) return res.status(404).json({ error: "Eintrag nicht gefunden" });
 
   const name = String(req.header("x-datei-name") ?? "").trim();
@@ -292,33 +337,50 @@ router.post("/:id/dateien", raw({ type: "application/octet-stream", limit: "64mb
   if (!Buffer.isBuffer(daten) || daten.length === 0)
     return res.status(400).json({ error: "Datei ist leer" });
 
-  const info = db
-    .prepare("INSERT INTO tresor_dateien (eintrag_id, dateiname, groesse, created_at) VALUES (?, ?, ?, ?)")
-    .run(eintrag.id, name, Number(req.header("x-datei-groesse")) || daten.length, now());
-  const id = Number(info.lastInsertRowid);
+  const groesse = Number(req.header("x-datei-groesse")) || daten.length;
+
+  if (inDatenbank()) {
+    // Zeile und Inhalt in einem Zug — eine Zeile ohne Inhalt waere ein Anhang,
+    // den die Oberflaeche anbietet und der beim Anklicken nicht da ist.
+    const info = await db.schreibe(
+      "INSERT INTO tresor_dateien (eintrag_id, dateiname, groesse, created_at, inhalt) VALUES (?, ?, ?, ?, ?)",
+      eintrag.id, name, groesse, now(), new Uint8Array(daten)
+    );
+    return res.json({ id: info.id });
+  }
+
+  const info = await db.schreibe(
+    "INSERT INTO tresor_dateien (eintrag_id, dateiname, groesse, created_at) VALUES (?, ?, ?, ?)",
+    eintrag.id, name, groesse, now()
+  );
   try {
-    fs.writeFileSync(dateiPfad(id), daten);
+    fs.writeFileSync(dateiPfad(info.id), daten);
   } catch {
-    db.prepare("DELETE FROM tresor_dateien WHERE id=?").run(id);
+    await db.schreibe("DELETE FROM tresor_dateien WHERE id=?", info.id);
     return res.status(500).json({ error: "Datei konnte nicht gespeichert werden" });
   }
-  res.json({ id });
+  res.json({ id: info.id });
 });
 
-router.get("/dateien/:fid", (req, res) => {
-  const row = db.prepare("SELECT id FROM tresor_dateien WHERE id=?").get(req.params.fid) as
-    | { id: number }
-    | undefined;
+router.get("/dateien/:fid", async (req, res) => {
+  const row = await db.eine<{ id: number; inhalt: Uint8Array | null }>(
+    "SELECT id, inhalt FROM tresor_dateien WHERE id=?", req.params.fid
+  );
   if (!row) return res.status(404).json({ error: "Datei nicht gefunden" });
+  // Erst die Datenbank, dann die Platte — in dieser Reihenfolge, damit ein
+  // Bestand aus beiden Zeiten lesbar bleibt.
+  if (row.inhalt) return res.type("application/octet-stream").send(Buffer.from(row.inhalt));
   const p = dateiPfad(row.id);
   if (!fs.existsSync(p)) return res.status(404).json({ error: "Datei fehlt auf der Platte" });
   res.type("application/octet-stream").send(fs.readFileSync(p));
 });
 
-router.delete("/dateien/:fid", (req, res) => {
+router.delete("/dateien/:fid", async (req, res) => {
   const id = Number(req.params.fid);
-  db.prepare("DELETE FROM tresor_dateien WHERE id=?").run(id);
-  try { fs.rmSync(dateiPfad(id)); } catch { /* schon weg */ }
+  // Die Zeile nimmt einen etwaigen Inhalt mit; eine etwaige Datei muss extra
+  // weg. Beides blind versuchen ist richtig — es gibt immer nur eines davon.
+  await db.schreibe("DELETE FROM tresor_dateien WHERE id=?", id);
+  try { fs.rmSync(dateiPfad(id)); } catch { /* schon weg oder nie dagewesen */ }
   res.json({ ok: true });
 });
 
@@ -327,13 +389,19 @@ router.delete("/dateien/:fid", (req, res) => {
  * Daten ohnehin unlesbar — hier wird der unlesbare Rest entfernt, damit man neu
  * anfangen kann. Die Oberflaeche fragt vorher deutlich nach.
  */
-router.delete("/", (_req, res) => {
-  const dateien = db.prepare("SELECT id FROM tresor_dateien").all() as { id: number }[];
-  db.exec("DELETE FROM tresor_dateien; DELETE FROM tresor_eintraege;");
+router.delete("/", async (_req, res) => {
+  const dateien = await db.transaktion(async () => {
+    const liste = await db.alle<{ id: number }>("SELECT id FROM tresor_dateien");
+    // Als eine Anweisung, nicht als `exec`: `exec` leert im Treiber den
+    // Anweisungs-Zwischenspeicher, und das ist hier unnoetig.
+    await db.schreibe("DELETE FROM tresor_dateien");
+    await db.schreibe("DELETE FROM tresor_eintraege");
+    await db.schreibe("DELETE FROM settings WHERE key='tresor_meta'");
+    return liste;
+  });
   for (const d of dateien) {
     try { fs.rmSync(dateiPfad(d.id)); } catch { /* schon weg */ }
   }
-  db.prepare("DELETE FROM settings WHERE key='tresor_meta'").run();
   res.json({ ok: true });
 });
 
@@ -345,10 +413,10 @@ router.delete("/", (_req, res) => {
  * Der Titel bleibt dagegen Chiffrat und wird hier nicht angefasst; deshalb
  * steht in der Zeile die Kategorie („Ausweis läuft ab"), nicht der Eintrag.
  */
-function termine(von: string, bis: string): Termin[] {
-  const rows = db
-    .prepare("SELECT id, kategorie, ablauf FROM tresor_eintraege WHERE ablauf IS NOT NULL")
-    .all() as { id: number; kategorie: string; ablauf: string }[];
+async function termine(von: string, bis: string): Promise<Termin[]> {
+  const rows = await db.alle<{ id: number; kategorie: string; ablauf: string }>(
+    "SELECT id, kategorie, ablauf FROM tresor_eintraege WHERE ablauf IS NOT NULL"
+  );
   return rows
     .filter((r) => r.ablauf >= von && r.ablauf <= bis)
     .map((r) => ({
@@ -372,17 +440,17 @@ function termine(von: string, bis: string): Termin[] {
  * gespeichert ist — „3 × Ausweis" auf einer Profilseite ist mehr Auskunft,
  * als ein Tresor geben sollte.
  */
-function profil(von: string, bis: string): ProfilBeitrag {
-  if (!leseMeta()) return {};
+async function profil(von: string, bis: string): Promise<ProfilBeitrag> {
+  if (!(await leseMeta())) return {};
 
-  const anzahl = (db.prepare("SELECT COUNT(*) AS n FROM tresor_eintraege").get() as { n: number }).n;
-  const dateien = db
-    .prepare("SELECT COUNT(*) AS n, COALESCE(SUM(groesse),0) AS b FROM tresor_dateien")
-    .get() as { n: number; b: number };
+  const anzahl = (await db.eine<{ n: number }>("SELECT COUNT(*) AS n FROM tresor_eintraege"))!.n;
+  const dateien = (await db.eine<{ n: number; b: number }>(
+    "SELECT COUNT(*) AS n, COALESCE(SUM(groesse),0) AS b FROM tresor_dateien"
+  ))!;
 
-  const rows = db
-    .prepare("SELECT ablauf, vorwarn_tage FROM tresor_eintraege WHERE ablauf IS NOT NULL")
-    .all() as { ablauf: string; vorwarn_tage: number }[];
+  const rows = await db.alle<{ ablauf: string; vorwarn_tage: number }>(
+    "SELECT ablauf, vorwarn_tage FROM tresor_eintraege WHERE ablauf IS NOT NULL"
+  );
   const ablaufend = rows
     .map((r) => ({ ...r, tage: tageBis(r.ablauf) }))
     .filter((r) => r.tage <= r.vorwarn_tage)
@@ -408,8 +476,8 @@ function profil(von: string, bis: string): ProfilBeitrag {
 
   return {
     zahlen,
-    tage: tageZaehlen("tresor_eintraege", "date(created_at, 'localtime')", von, bis),
-    seit: fruehestes("tresor_eintraege", "date(created_at, 'localtime')"),
+    tage: await tageZaehlen("tresor_eintraege", "date(created_at, 'localtime')", von, bis),
+    seit: await fruehestes("tresor_eintraege", "date(created_at, 'localtime')"),
   };
 }
 
@@ -417,6 +485,7 @@ export const tresorModule: ServerModule = {
   id: "tresor",
   title: "Tresor",
   router,
+  einrichten,
   termine,
   profil,
 };

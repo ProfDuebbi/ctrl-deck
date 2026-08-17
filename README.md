@@ -76,7 +76,10 @@ Anmeldung. Ein Passwort vergessen? `npm run passwort-neu`.
 
 ## Deine Daten
 
-- Alles liegt in `data/ctrl-deck.db` — eine einzige SQLite-Datei.
+- Alles liegt in `data/ctrl-deck.db` — eine einzige SQLite-Datei. Wer auf einem
+  Server betreibt, kann stattdessen [seine eigene Datenbank
+  anschließen](#variante-d--eigene-datenbank-anschließen); lokal bleibt es bei
+  der Datei.
 - Der Server ruft von sich aus **genau einen** fremden Dienst auf:
   [Open-Meteo](https://open-meteo.com) für das Wetter, ohne Schlüssel und ohne
   Anmeldung. Wer keinen Ort einstellt, spricht mit gar niemandem.
@@ -158,6 +161,52 @@ Bewusst nicht eingebaut. Sie verschlüsseln zwar, aber jedes Gerät zeigt eine
 Warnung, und die wegzuklicken wird zur Gewohnheit — die dann auch dort greift,
 wo die Warnung berechtigt ist.
 
+### Variante D — eigene Datenbank anschließen
+
+Bis hierher gilt überall: Die Daten liegen in `data/ctrl-deck.db`. Für den
+Alltag ist das die richtige Antwort, und daran ändert sich nichts.
+
+Auf manchen Servern ist es die falsche. Eine Plattform ohne dauerhaftes
+Dateisystem (Vercel, Heroku, viele Container-Hoster) wirft die Datei bei jedem
+Neustart weg. Auch wenn mehrere Prozesse denselben Bestand bedienen sollen oder
+`data/` auf einem Netzlaufwerk liegt, wird es unangenehm: SQLite verlässt sich
+dort auf Dateisperren, die über NFS oder SMB nicht zuverlässig funktionieren.
+
+Für diese Fälle kann CTRL·DECK eine **mitgebrachte Datenbank** benutzen —
+[libSQL](https://turso.tech/libsql), selbst betrieben (`sqld`) oder als Dienst.
+
+```bash
+npm --prefix server install @libsql/client     # einmalig, nur hierfür
+
+DB_URL=libsql://mein-deck-name.turso.io \
+DB_TOKEN=… \
+npm --prefix server start
+```
+
+Mehr ist nicht zu tun: Die Tabellen legt CTRL·DECK beim ersten Start selbst an.
+
+**Warum libSQL und nicht PostgreSQL.** libSQL spricht denselben SQL-Dialekt wie
+SQLite. Die rund 120 Abfragen dieses Projekts bleiben dadurch Wort für Wort
+stehen. Ein PostgreSQL-Treiber müsste jede einzelne übersetzen — und jede
+Übersetzung ist eine Stelle, an der sich ein Rechenfehler einschleicht, den
+niemand bemerkt. Die Schnittstelle in `server/src/db/schnittstelle.ts` ist offen
+genug für weitere Treiber; der Aufwand liegt im Dialekt, nicht im Anschluss.
+
+Was sich mit `DB_URL` sonst noch ändert:
+
+- **Tresor-Anhänge** wandern in die Datenbank statt nach `data/tresor/`. Erst
+  damit ist die Installation wirklich dateilos.
+- **Sicherungen** werden exportiert statt kopiert: `ctrl-deck_<stand>.json`
+  statt `.db`. Knopf, Liste, Wiederherstellen und die Spiegelung auf ein
+  zweites Laufwerk funktionieren unverändert weiter.
+- Ohne `DB_URL` passiert nichts davon. Eine lokale Installation braucht das
+  Paket nicht einmal installiert zu haben.
+
+> **Umziehen** geht über dieselbe Sicherung: Ein `.json`-Export lässt sich in
+> beide Richtungen einspielen — aus der lokalen Datei in die eigene Datenbank
+> und wieder zurück. Die Anhänge landen dabei automatisch dort, wo sie in der
+> Zielinstallation hingehören.
+
 ### Umgebungsvariablen
 
 | Variable | Standard | Wofür |
@@ -167,6 +216,9 @@ wo die Warnung berechtigt ist.
 | `TRUST_PROXY` | *(aus)* | Anzahl der Proxys (meist `1`) oder `loopback` |
 | `TLS_CERT` / `TLS_KEY` | `data/tls/…` | Zertifikat für direktes HTTPS |
 | `ORIGIN` | — | zusätzliche erlaubte Herkunft für CORS, z. B. `https://deck.example.org` |
+| `DATA_DIR` | `data/` | wohin Sicherungen, Exporte und die lokale Datenbank gehören (Container-Volume) |
+| `DB_URL` | *(aus)* | eigene Datenbank statt der lokalen Datei (siehe Variante D) |
+| `DB_TOKEN` | — | Zugangstoken dazu, falls verlangt |
 
 Liegt eine gebaute Oberfläche unter `web/dist`, liefert der Server sie gleich
 mit aus — dann läuft alles unter einer Adresse und CORS entfällt.
@@ -176,6 +228,7 @@ mit aus — dann läuft alles unter einer Adresse und CORS entfällt.
 ```
 ctrl-deck/
 ├─ server/   Express + SQLite (node:sqlite, kein nativer Build)
+│   ├─ src/db/        Datenbank-Schnittstelle + die zwei Treiber
 │   └─ src/modules/   je Feature ein Backend-Modul
 ├─ web/      React + Vite (TypeScript)
 │   ├─ src/core/      Dashboard-Gerüst, Modul-Registry, Startseite
@@ -192,6 +245,16 @@ ctrl-deck/
 
 Der Kern muss dafür nicht angefasst werden.
 
+Zwei Regeln gelten dabei, seit die Datenbank auch eine angeschlossene sein kann:
+
+- Den Router mit **`machRouter()`** aus `server/src/route.ts` bauen, nicht mit
+  `Router()`. Er fasst jeden Handler so ein, dass ein Fehler als sauberes JSON
+  ankommt statt als hängende Anfrage.
+- Tabellen im **`einrichten()`** des Moduls anlegen, nicht im Dateirumpf.
+  `index.ts` ruft das der Reihe nach auf, bevor der Server lauscht. Die Funktion
+  muss mehrfaches Aufrufen aushalten (`CREATE TABLE IF NOT EXISTS`, Seeds hinter
+  einem Merker in `settings`).
+
 ### Gestaltung
 
 Die Oberfläche hat ein eigenes, bewusst enges Design-System — flache
@@ -206,7 +269,7 @@ verbindlichen Regeln stehen als Kommentarblock oben in
 |---|---|
 | Oberfläche | React 18 + Vite + TypeScript |
 | Backend | Node 22 + Express |
-| Speicher | SQLite (`node:sqlite`, eingebaut — kein nativer Build) |
+| Speicher | SQLite (`node:sqlite`, eingebaut — kein nativer Build), wahlweise eigene libSQL-Datenbank |
 | Verschlüsselung | Web Crypto (AES-256-GCM, PBKDF2) |
 | Export | TXT + druckfertiger Bericht (PDF über den Browser) |
 

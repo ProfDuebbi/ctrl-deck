@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { machRouter } from "../route.js";
 import { getSetting } from "../db.js";
 import {
   serverModules,
@@ -41,9 +41,9 @@ function minusTage(d: Date, tage: number): Date {
 }
 
 /** Ausgeblendete Module — dieselbe Einstellung, die die Kachelwand liest. */
-function versteckte(): Set<string> {
+async function versteckte(): Promise<Set<string>> {
   try {
-    const roh = getSetting("module_hidden");
+    const roh = await getSetting("module_hidden");
     const geparst = roh ? JSON.parse(roh) : [];
     return new Set(Array.isArray(geparst) ? geparst.filter((x) => typeof x === "string") : []);
   } catch {
@@ -64,8 +64,8 @@ interface Gruppe {
  * dann fehlt eben sein Block, und der Grund steht im Log. Genau wie beim
  * Terminfaden.
  */
-function sammle(von: string, bis: string) {
-  const aus = versteckte();
+async function sammle(von: string, bis: string) {
+  const aus = await versteckte();
   const gruppen: Gruppe[] = [];
   const tage: Record<string, number> = {};
   const ereignisse: ProfilEreignis[] = [];
@@ -76,7 +76,7 @@ function sammle(von: string, bis: string) {
     if (!mod.profil || aus.has(mod.id)) continue;
     let beitrag: ProfilBeitrag;
     try {
-      beitrag = mod.profil(von, bis);
+      beitrag = await mod.profil(von, bis);
     } catch (e) {
       fehler.push(mod.id);
       console.warn(`[profil] Modul „${mod.id}" konnte nichts liefern:`, e);
@@ -132,7 +132,7 @@ function serien(tage: Record<string, number>, heute: Date, fenster: number) {
   return { aktuell, laengste: Math.max(laengste, laufend) };
 }
 
-const router = Router();
+const router = machRouter();
 
 /**
  * Die ganze Profilseite in einer Antwort.
@@ -140,13 +140,13 @@ const router = Router();
  * `tage` bestimmt die Laenge des Rueckblicks (28–730, Vorgabe ein Jahr). Eine
  * Anfrage je Modul waere hier zehn Anfragen fuer eine einzige Seite.
  */
-router.get("/", (req, res) => {
+router.get("/", async (req, res) => {
   const fenster = Math.min(Math.max(Number(req.query.tage) || 364, 28), 730);
   const heute = new Date();
   const bis = isoLokal(heute);
   const von = isoLokal(minusTage(heute, fenster - 1));
 
-  const { gruppen, tage, ereignisse, fehler, seit } = sammle(von, bis);
+  const { gruppen, tage, ereignisse, fehler, seit } = await sammle(von, bis);
 
   const eintraege = Object.entries(tage)
     .map(([datum, anzahl]) => ({ datum, anzahl }))

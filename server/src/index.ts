@@ -16,12 +16,31 @@ import path from "node:path";
 import { TLS_DIR, WEB_DIST } from "./paths.js";
 import {
   getSetting, setSetting, createBackup, pruneBackups, restoreDatabase,
-  listBackups, deleteBackup, BACKUP_DIR,
+  listBackups, deleteBackup, starteDatenbank, BACKUP_DIR,
 } from "./db.js";
-import { anmeldeRouten, istEingerichtet, tuersteher } from "./auth.js";
+import { anmeldeRouten, istEingerichtet, richteAuthEin, tuersteher } from "./auth.js";
 import { kopfRouten } from "./kopf.js";
+import { sicher } from "./route.js";
 import { externPfad, externStatus, setzeExternPfad, syncExtern } from "./externBackup.js";
 import { serverModules } from "./modules/index.js";
+
+/*
+ * Die Reihenfolge beim Start ist jetzt ausdrucksstark und nicht mehr dem Zufall
+ * der Import-Reihenfolge ueberlassen: erst die Datenbankverbindung, dann die
+ * Tabellen der Anmeldung, dann die der Module — und erst danach lauscht
+ * ueberhaupt jemand auf dem Port.
+ *
+ * Frueher legte jede Moduldatei ihre Tabellen beim Importieren an. Das ging
+ * nur, solange die Datenbank synchron war. Eine angeschlossene Datenbank
+ * antwortet ueber ein Netzwerk, und auf ein Versprechen kann man im Rumpf einer
+ * importierten Datei nicht sauber warten.
+ */
+const datenbank = await starteDatenbank();
+await richteAuthEin();
+for (const mod of serverModules) {
+  if (mod.einrichten) await mod.einrichten();
+}
+console.log(`[db] ${datenbank.bezeichnung}`);
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 8787);
@@ -121,13 +140,13 @@ app.get("/api/health", (_req, res) => {
 const AVATAR_MAX = 300_000;
 const AVATAR_ERLAUBT = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 
-app.get("/api/me", (_req, res) => {
+app.get("/api/me", sicher(async (_req, res) => {
   res.json({
-    name: getSetting("user_name") ?? "",
-    appName: getSetting("app_name") || "CTRL·DECK",
-    avatar: getSetting("user_avatar") || null,
+    name: (await getSetting("user_name")) ?? "",
+    appName: (await getSetting("app_name")) || "CTRL·DECK",
+    avatar: (await getSetting("user_avatar")) || null,
   });
-});
+}));
 
 /**
  * Teilweise Aenderung: nur was im Rumpf steht, wird angefasst.
@@ -135,14 +154,14 @@ app.get("/api/me", (_req, res) => {
  * Deshalb `in`-Pruefungen statt Wahrheitswerten — sonst koennte man das Bild
  * nie wieder loswerden, weil `null` und „nicht mitgeschickt" gleich aussaehen.
  */
-app.put("/api/me", (req, res) => {
+app.put("/api/me", sicher(async (req, res) => {
   const body = req.body ?? {};
 
   if ("name" in body) {
     const name = String(body.name ?? "").trim();
     if (!name) return res.status(400).json({ error: "Bitte einen Namen angeben." });
     if (name.length > 60) return res.status(400).json({ error: "Der Name ist zu lang (höchstens 60 Zeichen)." });
-    setSetting("user_name", name);
+    await setSetting("user_name", name);
   }
 
   if ("appName" in body) {
@@ -150,36 +169,36 @@ app.put("/api/me", (req, res) => {
     // ohne Titel waere in der Seitenleiste eine leere Zeile.
     const appName = String(body.appName ?? "").trim();
     if (appName.length > 30) return res.status(400).json({ error: "Der Titel ist zu lang (höchstens 30 Zeichen)." });
-    setSetting("app_name", appName);
+    await setSetting("app_name", appName);
   }
 
   if ("avatar" in body) {
     const avatar = body.avatar;
     if (avatar === null || avatar === "") {
-      setSetting("user_avatar", "");
+      await setSetting("user_avatar", "");
     } else if (typeof avatar !== "string" || !AVATAR_ERLAUBT.test(avatar)) {
       return res.status(400).json({ error: "Das ist kein gültiges Bild (PNG, JPEG oder WebP)." });
     } else if (avatar.length > AVATAR_MAX) {
       return res.status(413).json({ error: "Das Bild ist zu groß." });
     } else {
-      setSetting("user_avatar", avatar);
+      await setSetting("user_avatar", avatar);
     }
   }
 
   res.json({
-    name: getSetting("user_name") ?? "",
-    appName: getSetting("app_name") || "CTRL·DECK",
-    avatar: getSetting("user_avatar") || null,
+    name: (await getSetting("user_name")) ?? "",
+    appName: (await getSetting("app_name")) || "CTRL·DECK",
+    avatar: (await getSetting("user_avatar")) || null,
   });
-});
+}));
 
 /**
  * Selbst gewaehlte Reihenfolge der Module (Startseite UND Seitenleiste).
  * Eine leere Liste heisst „wie im Code deklariert" — so ist Zuruecksetzen
  * nur ein leeres Array und braucht keinen eigenen Endpunkt.
  */
-app.get("/api/module-order", (_req, res) => {
-  const roh = getSetting("module_order");
+app.get("/api/module-order", sicher(async (_req, res) => {
+  const roh = await getSetting("module_order");
   let order: string[] = [];
   try {
     const geparst = roh ? JSON.parse(roh) : [];
@@ -188,9 +207,9 @@ app.get("/api/module-order", (_req, res) => {
     /* kaputter Eintrag -> Standardreihenfolge */
   }
   res.json({ order });
-});
+}));
 
-app.put("/api/module-order", (req, res) => {
+app.put("/api/module-order", sicher(async (req, res) => {
   const roh = req.body?.order;
   if (!Array.isArray(roh)) return res.status(400).json({ error: "order muss eine Liste sein" });
   // Nur bekannte Modul-Kennungen, jede hoechstens einmal. Damit kann eine
@@ -201,9 +220,9 @@ app.put("/api/module-order", (req, res) => {
     const id = String(x);
     if (bekannt.has(id) && !order.includes(id)) order.push(id);
   }
-  setSetting("module_order", JSON.stringify(order));
+  await setSetting("module_order", JSON.stringify(order));
   res.json({ order });
-});
+}));
 
 /**
  * Ausgeblendete Module.
@@ -217,8 +236,8 @@ app.put("/api/module-order", (req, res) => {
  * Einstellungen, serverseitig gegen die Registry gefiltert. Damit ist das hier
  * zugleich die Vorstufe eines „Modul-Stores": zuerst waehlt man, was man sieht.
  */
-app.get("/api/module-hidden", (_req, res) => {
-  const roh = getSetting("module_hidden");
+app.get("/api/module-hidden", sicher(async (_req, res) => {
+  const roh = await getSetting("module_hidden");
   let hidden: string[] = [];
   try {
     const geparst = roh ? JSON.parse(roh) : [];
@@ -227,9 +246,9 @@ app.get("/api/module-hidden", (_req, res) => {
     /* kaputter Eintrag -> nichts ausgeblendet */
   }
   res.json({ hidden });
-});
+}));
 
-app.put("/api/module-hidden", (req, res) => {
+app.put("/api/module-hidden", sicher(async (req, res) => {
   const roh = req.body?.hidden;
   if (!Array.isArray(roh)) return res.status(400).json({ error: "hidden muss eine Liste sein" });
   const bekannt = new Set(serverModules.map((m) => m.id));
@@ -238,23 +257,34 @@ app.put("/api/module-hidden", (req, res) => {
     const id = String(x);
     if (bekannt.has(id) && !hidden.includes(id)) hidden.push(id);
   }
-  setSetting("module_hidden", JSON.stringify(hidden));
+  await setSetting("module_hidden", JSON.stringify(hidden));
   res.json({ hidden });
-});
+}));
 
 // Welche Module sind aktiv? Die Startseite rendert daraus ihre Kacheln.
 app.get("/api/modules", (_req, res) => {
   res.json(serverModules.map((m) => ({ id: m.id, title: m.title })));
 });
 
+/**
+ * Ein Sicherungsname, wie ihn db.ts vergibt — und nichts anderes.
+ *
+ * Zwei Endungen, weil es zwei Wege gibt: `.db` ist die Dateikopie der lokalen
+ * Installation, `.json` der Export einer angeschlossenen Datenbank. Die
+ * Pruefung auf den blossen Dateinamen verhindert, dass jemand ueber `..` aus
+ * dem Sicherungsordner herausklettert.
+ */
+const nameOk = (n: string) =>
+  !!n && n === path.basename(n) && (n.endsWith(".db") || n.endsWith(".json"));
+
 // Manuelles Voll-Backup: Datenbank samt verschluesselter Tresor-Anhaenge.
-app.post("/api/backup", (_req, res) => {
+app.post("/api/backup", sicher(async (_req, res) => {
   try {
-    const target = createBackup();
+    const target = await createBackup();
     pruneBackups();
     // Jede neue Sicherung geht sofort mit aufs zweite Laufwerk. Fehlt es
     // gerade, wird das still uebersprungen und beim naechsten Mal nachgeholt.
-    const extern = syncExtern();
+    const extern = await syncExtern();
     const info = listBackups().find((b) => b.name === path.basename(target));
     res.json({
       ok: true,
@@ -266,7 +296,7 @@ app.post("/api/backup", (_req, res) => {
   } catch {
     res.status(500).json({ error: "Backup fehlgeschlagen" });
   }
-});
+}));
 
 // Liste aller vorhandenen Backups (neueste zuerst).
 app.get("/api/backups", (_req, res) => {
@@ -274,11 +304,9 @@ app.get("/api/backups", (_req, res) => {
 });
 
 // Backup wiederherstellen (aktueller Stand wird vorher automatisch gesichert).
-app.post("/api/backups/restore", (req, res) => {
+app.post("/api/backups/restore", sicher(async (req, res) => {
   const name = String(req.body?.name ?? "");
-  // Pfad-Traversal verhindern: nur reine Dateinamen aus dem Backup-Ordner.
-  if (!name || name !== path.basename(name) || !name.endsWith(".db"))
-    return res.status(400).json({ error: "ungültiger Name" });
+  if (!nameOk(name)) return res.status(400).json({ error: "ungültiger Name" });
   const src = path.join(BACKUP_DIR, name);
   if (!fs.existsSync(src)) return res.status(404).json({ error: "Backup nicht gefunden" });
   try {
@@ -286,44 +314,42 @@ app.post("/api/backups/restore", (req, res) => {
     // Datenbank. Eine Sicherung von vor der Einrichtung kennt den Pfad noch
     // nicht — ohne diese Zeilen waere die externe Sicherung nach einer
     // Wiederherstellung stillschweigend abgeschaltet.
-    const zielVorher = externPfad();
-    const safety = restoreDatabase(src);
-    if (zielVorher && externPfad() !== zielVorher) setzeExternPfad(zielVorher);
+    const zielVorher = await externPfad();
+    const safety = await restoreDatabase(src);
+    if (zielVorher && (await externPfad()) !== zielVorher) await setzeExternPfad(zielVorher);
     // Die Sicherheitskopie ist der wertvollste Stand ueberhaupt — sie ist das
     // Einzige, was den vorherigen Zustand noch enthaelt. Sofort mitspiegeln.
-    syncExtern();
+    await syncExtern();
     console.log(`[backup] „${name}" wiederhergestellt (Sicherheitskopie: ${path.basename(safety)})`);
     res.json({ ok: true, restored: name, safetyBackup: path.basename(safety) });
   } catch {
     res.status(500).json({ error: "Wiederherstellung fehlgeschlagen" });
   }
-});
+}));
 
 // Ein Backup loeschen (samt seinem Anhang-Ordner).
 app.delete("/api/backups/:name", (req, res) => {
-  const name = req.params.name;
-  if (name !== path.basename(name) || !name.endsWith(".db"))
-    return res.status(400).json({ error: "ungültiger Name" });
-  deleteBackup(name);
+  if (!nameOk(req.params.name)) return res.status(400).json({ error: "ungültiger Name" });
+  deleteBackup(req.params.name);
   res.json({ ok: true });
 });
 
 // Sicherung auf ein zweites Laufwerk: Zustand, Ziel setzen, jetzt spiegeln.
-app.get("/api/extern", (_req, res) => {
-  res.json(externStatus());
-});
+app.get("/api/extern", sicher(async (_req, res) => {
+  res.json(await externStatus());
+}));
 
-app.put("/api/extern", (req, res) => {
+app.put("/api/extern", sicher(async (req, res) => {
   const pfad = String(req.body?.pfad ?? "");
   if (pfad.length > 500) return res.status(400).json({ error: "Pfad zu lang" });
-  setzeExternPfad(pfad);
+  await setzeExternPfad(pfad);
   // Direkt einmal spiegeln, damit man sofort sieht, ob das Ziel taugt.
-  res.json(syncExtern());
-});
+  res.json(await syncExtern());
+}));
 
-app.post("/api/extern/sync", (_req, res) => {
-  res.json(syncExtern());
-});
+app.post("/api/extern/sync", sicher(async (_req, res) => {
+  res.json(await syncExtern());
+}));
 
 // --- Feature-Module einhaengen -------------------------------------------
 
@@ -336,6 +362,23 @@ for (const mod of serverModules) {
 // bekaeme ein Aufrufer, der sauber JSON erwartet, ploetzlich Markup.
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "unbekannter Endpunkt" });
+});
+
+/**
+ * Endstation fuer alles, was in einer Route schiefgeht.
+ *
+ * Seit die Datenbank asynchron ist, faengt `sicher()` (siehe route.ts) auch
+ * abgelehnte Versprechen ein und schickt sie per `next(fehler)` hierher. Ohne
+ * diesen Block antwortete Express mit seiner HTML-Fehlerseite — an eine
+ * Oberflaeche, die JSON erwartet und daran erstickt.
+ *
+ * Nach draussen geht bewusst nur ein Satz: eine Fehlermeldung aus der Datenbank
+ * kann Tabellennamen und Werte enthalten. Das Ganze steht im Protokoll.
+ */
+app.use("/api", (fehler: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error("[api]", fehler);
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Da ist etwas schiefgegangen." });
 });
 
 /**
@@ -362,11 +405,12 @@ if (fs.existsSync(WEB_DIST)) {
 }
 
 // Automatisches Tages-Backup: hoechstens einmal pro Kalendertag beim Start.
+// Bei einer angeschlossenen Datenbank wird dabei exportiert statt kopiert.
 try {
   const today = new Date().toISOString().slice(0, 10);
-  if (getSetting("last_auto_backup") !== today) {
-    createBackup("auto");
-    setSetting("last_auto_backup", today);
+  if ((await getSetting("last_auto_backup")) !== today) {
+    await createBackup("auto");
+    await setSetting("last_auto_backup", today);
     pruneBackups();
     console.log(`[backup] automatisches Tages-Backup erstellt (${today})`);
   }
@@ -422,22 +466,22 @@ const server = zertifikat
   ? https.createServer({ cert: zertifikat.cert, key: zertifikat.key }, app)
   : http.createServer(app);
 
-server.listen(PORT, HOST, () => {
+server.listen(PORT, HOST, async () => {
   const schema = zertifikat ? "https" : "http";
   console.log(`\n  CTRL·DECK Server laeuft auf ${schema}://${HOST}:${PORT}\n`);
   if (HOST !== "127.0.0.1") {
     console.warn("  [!] Server ist im Netzwerk erreichbar.");
     if (!zertifikat && !TRUST_PROXY)
       console.warn("      Die Verbindung ist unverschluesselt (http) — im eigenen WLAN vertretbar, im Internet nicht.");
-    if (!istEingerichtet())
+    if (!(await istEingerichtet()))
       console.warn("      [!!] Es ist noch KEIN Passwort gesetzt. Bitte sofort im Browser einrichten.\n");
     else console.warn("");
   }
 
   // Externe Spiegelung erst NACH dem Lauschen: haengt das Ziellaufwerk (USB,
   // Netzlaufwerk im Ruhezustand), wartet niemand auf die Oberflaeche.
-  setTimeout(() => {
-    const e = syncExtern();
+  setTimeout(async () => {
+    const e = await syncExtern();
     if (e.uebersprungen && !e.fehler) return; // kein Ziel eingerichtet
     if (e.ok) console.log(`[extern] gespiegelt nach ${e.status.pfad} (${e.kopiert} neu, ${e.entfernt} entfernt)`);
     else console.warn(`[extern] uebersprungen: ${e.fehler}`);

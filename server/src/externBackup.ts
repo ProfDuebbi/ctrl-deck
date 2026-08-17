@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { BACKUP_DIR, listBackups, getSetting, setSetting, anhangOrdner } from "./db.js";
+import { BACKUP_DIR, listBackups, getSetting, setSetting, anhangOrdner, istSicherung } from "./db.js";
 
 /**
  * Sicherung auf ein ZWEITES Laufwerk.
@@ -30,7 +30,7 @@ const KEY_FEHLER = "backup_extern_fehler";
  * seinen Dokumentenordner ein. Aufraeumen darf deshalb ausschliesslich, was
  * nachweislich von uns stammt.
  */
-const UNSER_NAME = /^(ctrl-deck|auto|pre-restore)_\d{4}-\d{2}-\d{2}T[\d-]+\.db$/;
+const UNSER_NAME = /^(ctrl-deck|auto|pre-restore)_\d{4}-\d{2}-\d{2}T[\d-]+\.(db|json)$/;
 
 export interface ExternStatus {
   /** Zielordner, "" = nicht eingerichtet. */
@@ -49,14 +49,14 @@ export interface ExternStatus {
   behalten: number;
 }
 
-export function externPfad(): string {
-  return (getSetting(KEY_PFAD) ?? "").trim();
+export async function externPfad(): Promise<string> {
+  return ((await getSetting(KEY_PFAD)) ?? "").trim();
 }
 
-export function setzeExternPfad(roh: string): string {
+export async function setzeExternPfad(roh: string): Promise<string> {
   const pfad = roh.trim();
-  setSetting(KEY_PFAD, pfad);
-  setSetting(KEY_FEHLER, ""); // alter Fehler gehoert zum alten Ziel
+  await setSetting(KEY_PFAD, pfad);
+  await setSetting(KEY_FEHLER, ""); // alter Fehler gehoert zum alten Ziel
   return pfad;
 }
 
@@ -94,16 +94,16 @@ function ordnerInhalt(dir: string): { anzahl: number; groesse: number } {
   return { anzahl, groesse };
 }
 
-export function externStatus(): ExternStatus {
-  const pfad = externPfad();
-  const fehler = (getSetting(KEY_FEHLER) ?? "").trim();
+export async function externStatus(): Promise<ExternStatus> {
+  const pfad = await externPfad();
+  const fehler = ((await getSetting(KEY_FEHLER)) ?? "").trim();
   const erreichbar = pfad ? laufwerkDa(pfad) : false;
   const inhalt = erreichbar ? ordnerInhalt(pfad) : { anzahl: 0, groesse: 0 };
   return {
     pfad,
     aktiv: pfad !== "",
     erreichbar,
-    zuletzt: getSetting(KEY_ZULETZT),
+    zuletzt: await getSetting(KEY_ZULETZT),
     fehler: fehler || null,
     anzahl: inhalt.anzahl,
     groesse: inhalt.groesse,
@@ -158,23 +158,23 @@ export interface ExternErgebnis {
  * Fehlerfall — der Start der App darf daran nicht haengen. Sichtbar wird es
  * ueber den Status im Sicherungs-Dialog.
  */
-export function syncExtern(): ExternErgebnis {
-  const antwort = (
+export async function syncExtern(): Promise<ExternErgebnis> {
+  const antwort = async (
     teil: Partial<ExternErgebnis> & { ok: boolean }
-  ): ExternErgebnis => ({
+  ): Promise<ExternErgebnis> => ({
     kopiert: 0,
     entfernt: 0,
     uebersprungen: false,
     fehler: null,
     ...teil,
-    status: externStatus(),
+    status: await externStatus(),
   });
 
-  const pfad = externPfad();
+  const pfad = await externPfad();
   if (!pfad) return antwort({ ok: false, uebersprungen: true });
 
   if (!laufwerkDa(pfad)) {
-    setSetting(KEY_FEHLER, "Laufwerk nicht erreichbar");
+    await setSetting(KEY_FEHLER, "Laufwerk nicht erreichbar");
     return antwort({ ok: false, uebersprungen: true, fehler: "Laufwerk nicht erreichbar" });
   }
 
@@ -219,12 +219,12 @@ export function syncExtern(): ExternErgebnis {
       entfernt++;
     }
 
-    setSetting(KEY_ZULETZT, new Date().toISOString());
-    setSetting(KEY_FEHLER, "");
+    await setSetting(KEY_ZULETZT, new Date().toISOString());
+    await setSetting(KEY_FEHLER, "");
     return antwort({ ok: true, kopiert, entfernt });
   } catch (e) {
     const text = e instanceof Error ? e.message : "unbekannter Fehler";
-    setSetting(KEY_FEHLER, text);
+    await setSetting(KEY_FEHLER, text);
     return antwort({ ok: false, fehler: text });
   }
 }

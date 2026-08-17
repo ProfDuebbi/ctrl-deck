@@ -1,8 +1,8 @@
-import { Router } from "express";
+import { machRouter } from "../route.js";
 import fs from "node:fs";
 import path from "node:path";
 import { db, getSetting, setSetting } from "../db.js";
-import { ROOT_DIR, EXPORT_DIR } from "../paths.js";
+import { EXPORT_DIR } from "../paths.js";
 import {
   fruehestes, jeMonat, tageZaehlen,
   type Diagramm, type ProfilBeitrag, type ServerModule, type Treffer,
@@ -10,29 +10,31 @@ import {
 
 // --- Schema ---------------------------------------------------------------
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS noise_own (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    datum       TEXT NOT NULL,
-    start       TEXT,
-    ende        TEXT,
-    dauer_min   INTEGER,
-    aktivitaet  TEXT NOT NULL DEFAULT 'Musik',
-    lautstaerke TEXT,
-    bemerkung   TEXT,
-    created_at  TEXT NOT NULL
-  );
+async function einrichten(): Promise<void> {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS noise_own (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      datum       TEXT NOT NULL,
+      start       TEXT,
+      ende        TEXT,
+      dauer_min   INTEGER,
+      aktivitaet  TEXT NOT NULL DEFAULT 'Musik',
+      lautstaerke TEXT,
+      bemerkung   TEXT,
+      created_at  TEXT NOT NULL
+    );
 
-  CREATE TABLE IF NOT EXISTS noise_foreign (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    datum       TEXT NOT NULL,
-    uhrzeit     TEXT,
-    verursacher TEXT NOT NULL,
-    art         TEXT NOT NULL,
-    bemerkung   TEXT,
-    created_at  TEXT NOT NULL
-  );
-`);
+    CREATE TABLE IF NOT EXISTS noise_foreign (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      datum       TEXT NOT NULL,
+      uhrzeit     TEXT,
+      verursacher TEXT NOT NULL,
+      art         TEXT NOT NULL,
+      bemerkung   TEXT,
+      created_at  TEXT NOT NULL
+    );
+  `);
+}
 
 // --- Helfer ---------------------------------------------------------------
 
@@ -41,10 +43,10 @@ db.exec(`
  * Mieters und der des Vermieters fest im Code — in einem Beweispapier ist das
  * genau die Stelle, an der ein fremder Nutzer seine eigenen Daten braucht.
  */
-export function berichtsKopf(): { mieter: string; vermieter: string } {
+export async function berichtsKopf(): Promise<{ mieter: string; vermieter: string }> {
   return {
-    mieter: getSetting("bericht_mieter") ?? "",
-    vermieter: getSetting("bericht_vermieter") ?? "",
+    mieter: (await getSetting("bericht_mieter")) ?? "",
+    vermieter: (await getSetting("bericht_vermieter")) ?? "",
   };
 }
 
@@ -53,8 +55,8 @@ export function berichtsKopf(): { mieter: string; vermieter: string } {
  * statt „Mieter:  · Vermieter: " zu drucken — ein halb ausgefuellter Briefkopf
  * ist schlechter als gar keiner.
  */
-function kopfZeile(): string {
-  const { mieter, vermieter } = berichtsKopf();
+async function kopfZeile(): Promise<string> {
+  const { mieter, vermieter } = await berichtsKopf();
   const teile: string[] = [];
   if (mieter) teile.push(`Mieter: ${mieter}`);
   if (vermieter) teile.push(`Vermieter: ${vermieter}`);
@@ -71,10 +73,10 @@ const now = () => new Date().toISOString();
 
 // --- Statistik ------------------------------------------------------------
 
-function ownStats() {
-  const rows = db
-    .prepare("SELECT dauer_min, aktivitaet FROM noise_own")
-    .all() as { dauer_min: number | null; aktivitaet: string }[];
+async function ownStats() {
+  const rows = await db.alle<{ dauer_min: number | null; aktivitaet: string }>(
+    "SELECT dauer_min, aktivitaet FROM noise_own"
+  );
   const sessions = rows.filter((r) => r.dauer_min != null);
   const totalMin = sessions.reduce((s, r) => s + (r.dauer_min ?? 0), 0);
   const longest = sessions.reduce((m, r) => Math.max(m, r.dauer_min ?? 0), 0);
@@ -99,16 +101,15 @@ function pad(v: string | null, width: number): string {
   return (v ?? "--").padEnd(width);
 }
 
-function exportOwnTxt(): string {
-  const rows = db
-    .prepare("SELECT * FROM noise_own ORDER BY datum, start")
-    .all() as any[];
-  const s = ownStats();
+async function exportOwnTxt(): Promise<string> {
+  const rows = await db.alle<any>("SELECT * FROM noise_own ORDER BY datum, start");
+  const s = await ownStats();
+  const kopf = await kopfZeile();
   // Ohne hinterlegte Namen faellt die Zeile ganz weg, statt eine Leerzeile
   // mitten in den Briefkopf zu setzen.
   const head = [
     "LÄRMPROTOKOLL — TABELLE 1: EIGENES PROTOKOLL",
-    ...(kopfZeile() ? [kopfZeile()] : []),
+    ...(kopf ? [kopf] : []),
     `Exportiert am: ${new Date().toLocaleDateString("de-DE")} (aus dem CTRL·DECK-Dashboard)`,
     "",
     "Spalten: Datum | Start | Ende | Dauer | Aktivität | Einstellung/Lautstärke | Bemerkung",
@@ -136,13 +137,12 @@ function exportOwnTxt(): string {
   return [...head, ...body, ...foot].join("\n");
 }
 
-function exportForeignTxt(): string {
-  const rows = db
-    .prepare("SELECT * FROM noise_foreign ORDER BY datum, uhrzeit")
-    .all() as any[];
+async function exportForeignTxt(): Promise<string> {
+  const rows = await db.alle<any>("SELECT * FROM noise_foreign ORDER BY datum, uhrzeit");
+  const kopf = await kopfZeile();
   const head = [
     "LÄRMPROTOKOLL — TABELLE 2: FREMDGERÄUSCHE / LÄRM DURCH DRITTE",
-    ...(kopfZeile() ? [kopfZeile()] : []),
+    ...(kopf ? [kopf] : []),
     `Exportiert am: ${new Date().toLocaleDateString("de-DE")} (aus dem CTRL·DECK-Dashboard)`,
     "",
     "Spalten: Datum | Uhrzeit | Verursacher | Art des Lärms | Bemerkung",
@@ -158,39 +158,35 @@ function exportForeignTxt(): string {
 
 // --- Router ---------------------------------------------------------------
 
-const router = Router();
+const router = machRouter();
 
 // Eigenes Protokoll -------------------------------------------------------
-router.get("/own", (_req, res) => {
-  res.json(db.prepare("SELECT * FROM noise_own ORDER BY datum DESC, start DESC").all());
+router.get("/own", async (_req, res) => {
+  res.json(await db.alle("SELECT * FROM noise_own ORDER BY datum DESC, start DESC"));
 });
 
-router.post("/own", (req, res) => {
+router.post("/own", async (req, res) => {
   const b = req.body ?? {};
   if (!b.datum) return res.status(400).json({ error: "datum fehlt" });
-  const info = db
-    .prepare(
-      `INSERT INTO noise_own (datum, start, ende, dauer_min, aktivitaet, lautstaerke, bemerkung, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      b.datum,
-      b.start || null,
-      b.ende || null,
-      b.dauer_min ?? null,
-      b.aktivitaet || "Musik",
-      b.lautstaerke || null,
-      b.bemerkung || null,
-      now()
-    );
-  res.json({ id: info.lastInsertRowid });
+  const info = await db.schreibe(
+    `INSERT INTO noise_own (datum, start, ende, dauer_min, aktivitaet, lautstaerke, bemerkung, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    b.datum,
+    b.start || null,
+    b.ende || null,
+    b.dauer_min ?? null,
+    b.aktivitaet || "Musik",
+    b.lautstaerke || null,
+    b.bemerkung || null,
+    now()
+  );
+  res.json({ id: info.id });
 });
 
-router.put("/own/:id", (req, res) => {
+router.put("/own/:id", async (req, res) => {
   const b = req.body ?? {};
-  db.prepare(
-    `UPDATE noise_own SET datum=?, start=?, ende=?, dauer_min=?, aktivitaet=?, lautstaerke=?, bemerkung=? WHERE id=?`
-  ).run(
+  await db.schreibe(
+    `UPDATE noise_own SET datum=?, start=?, ende=?, dauer_min=?, aktivitaet=?, lautstaerke=?, bemerkung=? WHERE id=?`,
     b.datum,
     b.start || null,
     b.ende || null,
@@ -203,48 +199,48 @@ router.put("/own/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete("/own/:id", (req, res) => {
-  db.prepare("DELETE FROM noise_own WHERE id=?").run(req.params.id);
+router.delete("/own/:id", async (req, res) => {
+  await db.schreibe("DELETE FROM noise_own WHERE id=?", req.params.id);
   res.json({ ok: true });
 });
 
 // Fremdgeräusche ----------------------------------------------------------
-router.get("/foreign", (_req, res) => {
-  res.json(db.prepare("SELECT * FROM noise_foreign ORDER BY datum DESC, uhrzeit DESC").all());
+router.get("/foreign", async (_req, res) => {
+  res.json(await db.alle("SELECT * FROM noise_foreign ORDER BY datum DESC, uhrzeit DESC"));
 });
 
-router.post("/foreign", (req, res) => {
+router.post("/foreign", async (req, res) => {
   const b = req.body ?? {};
   if (!b.datum) return res.status(400).json({ error: "datum fehlt" });
-  const info = db
-    .prepare(
-      `INSERT INTO noise_foreign (datum, uhrzeit, verursacher, art, bemerkung, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    )
-    .run(b.datum, b.uhrzeit || null, b.verursacher || "?", b.art || "?", b.bemerkung || null, now());
-  res.json({ id: info.lastInsertRowid });
+  const info = await db.schreibe(
+    `INSERT INTO noise_foreign (datum, uhrzeit, verursacher, art, bemerkung, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    b.datum, b.uhrzeit || null, b.verursacher || "?", b.art || "?", b.bemerkung || null, now()
+  );
+  res.json({ id: info.id });
 });
 
-router.put("/foreign/:id", (req, res) => {
+router.put("/foreign/:id", async (req, res) => {
   const b = req.body ?? {};
-  db.prepare(
-    `UPDATE noise_foreign SET datum=?, uhrzeit=?, verursacher=?, art=?, bemerkung=? WHERE id=?`
-  ).run(b.datum, b.uhrzeit || null, b.verursacher || "?", b.art || "?", b.bemerkung || null, req.params.id);
+  await db.schreibe(
+    `UPDATE noise_foreign SET datum=?, uhrzeit=?, verursacher=?, art=?, bemerkung=? WHERE id=?`,
+    b.datum, b.uhrzeit || null, b.verursacher || "?", b.art || "?", b.bemerkung || null, req.params.id
+  );
   res.json({ ok: true });
 });
 
-router.delete("/foreign/:id", (req, res) => {
-  db.prepare("DELETE FROM noise_foreign WHERE id=?").run(req.params.id);
+router.delete("/foreign/:id", async (req, res) => {
+  await db.schreibe("DELETE FROM noise_foreign WHERE id=?", req.params.id);
   res.json({ ok: true });
 });
 
 // Statistik fuer die Kachel ----------------------------------------------
-router.get("/summary", (_req, res) => {
-  const own = ownStats();
-  const foreignRows = db
-    .prepare("SELECT datum, uhrzeit, verursacher FROM noise_foreign ORDER BY datum DESC, uhrzeit DESC LIMIT 1")
-    .all() as { datum: string; uhrzeit: string | null; verursacher: string }[];
-  const foreignCount = (db.prepare("SELECT COUNT(*) c FROM noise_foreign").get() as { c: number }).c;
+router.get("/summary", async (_req, res) => {
+  const own = await ownStats();
+  const foreignRows = await db.alle<{ datum: string; uhrzeit: string | null; verursacher: string }>(
+    "SELECT datum, uhrzeit, verursacher FROM noise_foreign ORDER BY datum DESC, uhrzeit DESC LIMIT 1"
+  );
+  const foreignCount = (await db.eine<{ c: number }>("SELECT COUNT(*) c FROM noise_foreign"))!.c;
   res.json({
     own,
     ownTotalLabel: fmtDur(own.totalMin),
@@ -255,44 +251,43 @@ router.get("/summary", (_req, res) => {
 
 // Export --------------------------------------------------------------------
 /** Angaben fuer den Kopf des Beweispapiers (Mieter, Vermieter). */
-router.get("/bericht", (_req, res) => {
-  res.json(berichtsKopf());
+router.get("/bericht", async (_req, res) => {
+  res.json(await berichtsKopf());
 });
 
-router.put("/bericht", (req, res) => {
+router.put("/bericht", async (req, res) => {
   const mieter = String(req.body?.mieter ?? "").trim().slice(0, 200);
   const vermieter = String(req.body?.vermieter ?? "").trim().slice(0, 200);
-  setSetting("bericht_mieter", mieter);
-  setSetting("bericht_vermieter", vermieter);
+  await setSetting("bericht_mieter", mieter);
+  await setSetting("bericht_vermieter", vermieter);
   res.json({ mieter, vermieter });
 });
 
-router.post("/export", (_req, res) => {
+router.post("/export", async (_req, res) => {
   const stamp = new Date().toISOString().slice(0, 10);
   const ownPath = path.join(EXPORT_DIR, `Laermprotokoll_Eigenes_${stamp}.txt`);
   const forPath = path.join(EXPORT_DIR, `Laermprotokoll_Fremdgeraeusche_${stamp}.txt`);
-  const ownTxt = exportOwnTxt();
-  const forTxt = exportForeignTxt();
+  const ownTxt = await exportOwnTxt();
+  const forTxt = await exportForeignTxt();
   fs.writeFileSync(ownPath, ownTxt, "utf8");
   fs.writeFileSync(forPath, forTxt, "utf8");
   res.json({ ownPath, forPath, ownTxt, forTxt });
 });
 
 /** Meldung an die globale Suche: Bemerkungen, Verursacher, Aktivitaeten. */
-function suche(begriff: string, grenze: number): Treffer[] {
+async function suche(begriff: string, grenze: number): Promise<Treffer[]> {
   const m = `%${begriff}%`;
   const je = Math.max(2, Math.floor(grenze / 2));
   const treffer: Treffer[] = [];
 
-  for (const r of db
-    .prepare(
-      `SELECT id, datum, start, aktivitaet, bemerkung FROM noise_own
-        WHERE bemerkung LIKE ? OR aktivitaet LIKE ? OR lautstaerke LIKE ?
-        ORDER BY datum DESC LIMIT ?`
-    )
-    .all(m, m, m, je) as {
-      id: number; datum: string; start: string | null; aktivitaet: string; bemerkung: string | null;
-    }[]) {
+  for (const r of await db.alle<{
+    id: number; datum: string; start: string | null; aktivitaet: string; bemerkung: string | null;
+  }>(
+    `SELECT id, datum, start, aktivitaet, bemerkung FROM noise_own
+      WHERE bemerkung LIKE ? OR aktivitaet LIKE ? OR lautstaerke LIKE ?
+      ORDER BY datum DESC LIMIT ?`,
+    m, m, m, je
+  )) {
     treffer.push({
       id: `laermprotokoll:eigen:${r.id}`,
       titel: r.bemerkung || r.aktivitaet,
@@ -303,15 +298,14 @@ function suche(begriff: string, grenze: number): Treffer[] {
     });
   }
 
-  for (const r of db
-    .prepare(
-      `SELECT id, datum, uhrzeit, verursacher, art, bemerkung FROM noise_foreign
-        WHERE bemerkung LIKE ? OR verursacher LIKE ? OR art LIKE ?
-        ORDER BY datum DESC LIMIT ?`
-    )
-    .all(m, m, m, je) as {
-      id: number; datum: string; uhrzeit: string | null; verursacher: string; art: string; bemerkung: string | null;
-    }[]) {
+  for (const r of await db.alle<{
+    id: number; datum: string; uhrzeit: string | null; verursacher: string; art: string; bemerkung: string | null;
+  }>(
+    `SELECT id, datum, uhrzeit, verursacher, art, bemerkung FROM noise_foreign
+      WHERE bemerkung LIKE ? OR verursacher LIKE ? OR art LIKE ?
+      ORDER BY datum DESC LIMIT ?`,
+    m, m, m, je
+  )) {
     treffer.push({
       id: `laermprotokoll:fremd:${r.id}`,
       titel: r.bemerkung || r.art,
@@ -333,33 +327,29 @@ function suche(begriff: string, grenze: number): Treffer[] {
  * Raster zaehlt beides, denn beides ist ein Tag, an dem man etwas eingetragen
  * hat.
  */
-function profil(von: string, bis: string): ProfilBeitrag {
-  const own = ownStats();
-  const fremd = db
-    .prepare("SELECT COUNT(*) AS n FROM noise_foreign")
-    .get() as { n: number };
-  const fremdFenster = db
-    .prepare("SELECT COUNT(*) AS n FROM noise_foreign WHERE datum BETWEEN ? AND ?")
-    .get(von, bis) as { n: number };
+async function profil(von: string, bis: string): Promise<ProfilBeitrag> {
+  const own = await ownStats();
+  const fremd = (await db.eine<{ n: number }>("SELECT COUNT(*) AS n FROM noise_foreign"))!;
+  const fremdFenster = (await db.eine<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM noise_foreign WHERE datum BETWEEN ? AND ?", von, bis
+  ))!;
 
-  const letzte = db
-    .prepare(
-      `SELECT id, datum, uhrzeit, verursacher, art, bemerkung FROM noise_foreign
-        ORDER BY datum DESC, COALESCE(uhrzeit,'99:99') DESC, id DESC LIMIT 5`
-    )
-    .all() as {
-      id: number; datum: string; uhrzeit: string | null;
-      verursacher: string; art: string; bemerkung: string | null;
-    }[];
+  const letzte = await db.alle<{
+    id: number; datum: string; uhrzeit: string | null;
+    verursacher: string; art: string; bemerkung: string | null;
+  }>(
+    `SELECT id, datum, uhrzeit, verursacher, art, bemerkung FROM noise_foreign
+      ORDER BY datum DESC, COALESCE(uhrzeit,'99:99') DESC, id DESC LIMIT 5`
+  );
 
   // Zwei Tabellen, ein Raster: die Tageszaehlungen werden addiert.
-  const tage = tageZaehlen("noise_own", "datum", von, bis);
-  for (const [tag, n] of Object.entries(tageZaehlen("noise_foreign", "datum", von, bis))) {
+  const tage = await tageZaehlen("noise_own", "datum", von, bis);
+  for (const [tag, n] of Object.entries(await tageZaehlen("noise_foreign", "datum", von, bis))) {
     tage[tag] = (tage[tag] ?? 0) + n;
   }
 
-  const erstesEigen = fruehestes("noise_own", "datum");
-  const erstesFremd = fruehestes("noise_foreign", "datum");
+  const erstesEigen = await fruehestes("noise_own", "datum");
+  const erstesFremd = await fruehestes("noise_foreign", "datum");
 
   return {
     zahlen: [
@@ -387,8 +377,8 @@ function profil(von: string, bis: string): ProfilBeitrag {
  * Beschwerdegegenstand — sie in dieselbe Kurve zu legen, wuerde die Aussage
  * des Bildes verwaessern.
  */
-function diagramme(von: string, bis: string): Diagramm[] {
-  const punkte = jeMonat("noise_foreign", "datum", "COUNT(*)", von, bis);
+async function diagramme(von: string, bis: string): Promise<Diagramm[]> {
+  const punkte = await jeMonat("noise_foreign", "datum", "COUNT(*)", von, bis);
   const summe = punkte.reduce((s, p) => s + p.y, 0);
   if (summe === 0) return [];
 
@@ -403,13 +393,12 @@ function diagramme(von: string, bis: string): Diagramm[] {
     reihen: [{ id: "laermprotokoll:vorfaelle", name: "Vorfälle", farbe: "pink", punkte }],
   }];
 
-  const jeVerursacher = db
-    .prepare(
-      `SELECT verursacher AS x, COUNT(*) AS y FROM noise_foreign
-        WHERE datum BETWEEN ? AND ?
-        GROUP BY verursacher ORDER BY y DESC`
-    )
-    .all(von, bis) as { x: string; y: number }[];
+  const jeVerursacher = await db.alle<{ x: string; y: number }>(
+    `SELECT verursacher AS x, COUNT(*) AS y FROM noise_foreign
+      WHERE datum BETWEEN ? AND ?
+      GROUP BY verursacher ORDER BY y DESC`,
+    von, bis
+  );
   if (jeVerursacher.length >= 2) {
     out.push({
       id: "laermprotokoll:verursacher",
@@ -428,6 +417,7 @@ export const laermprotokollModule: ServerModule = {
   id: "laermprotokoll",
   title: "Lärmprotokoll",
   router,
+  einrichten,
   suche,
   profil,
   diagramme,

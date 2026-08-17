@@ -1,5 +1,5 @@
-import { Router } from "express";
-import { db } from "../db.js";
+import { machRouter } from "../route.js";
+import { db, type Wert } from "../db.js";
 import {
   fruehestes, jeMonat, tageZaehlen,
   type Diagramm, type ProfilBeitrag, type ProfilZahl,
@@ -8,7 +8,8 @@ import {
 
 // --- Schema ---------------------------------------------------------------
 
-db.exec(`
+async function einrichten(): Promise<void> {
+  await db.exec(`
   CREATE TABLE IF NOT EXISTS fixkosten (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT NOT NULL,
@@ -88,12 +89,11 @@ db.exec(`
     betrag   REAL NOT NULL,
     notiz    TEXT
   );
-`);
+  `);
 
-// Vertragsfelder kamen nachtraeglich dazu — bestehende DBs nachziehen.
-{
+  // Vertragsfelder kamen nachtraeglich dazu — bestehende DBs nachziehen.
   const spalten = new Set(
-    (db.prepare("PRAGMA table_info(fixkosten)").all() as { name: string }[]).map((c) => c.name)
+    (await db.alle<{ name: string }>("PRAGMA table_info(fixkosten)")).map((c) => c.name)
   );
   for (const [name, def] of [
     ["vertrag_ende", "TEXT"],      // YYYY-MM-DD, Ende der aktuellen Laufzeit
@@ -101,7 +101,7 @@ db.exec(`
     ["frist_einheit", "TEXT"],     // tage | wochen | monate
     ["verlaengerung", "INTEGER"],  // Monate automatischer Verlaengerung, 0 = keine
   ] as const) {
-    if (!spalten.has(name)) db.exec(`ALTER TABLE fixkosten ADD COLUMN ${name} ${def}`);
+    if (!spalten.has(name)) await db.exec(`ALTER TABLE fixkosten ADD COLUMN ${name} ${def}`);
   }
 }
 
@@ -187,24 +187,14 @@ type EinnahmeRow = {
  * `vorziehen` bucht zusaetzlich den laufenden Monat, dessen Zahltag noch
  * bevorsteht ("jetzt buchen"), dann mit dem heutigen Datum.
  */
-function einnahmenAusfuehren(opts: { nurId?: number; vorziehen?: boolean } = {}): number {
+async function einnahmenAusfuehren(opts: { nurId?: number; vorziehen?: boolean } = {}): Promise<number> {
   const { nurId, vorziehen } = opts;
   const heute = heuteLokal();
   const bis = periodeHeute();
-  const rows = (
+  const rows =
     nurId != null
-      ? db.prepare("SELECT * FROM einnahmen WHERE id = ? AND aktiv = 1").all(nurId)
-      : db.prepare("SELECT * FROM einnahmen WHERE aktiv = 1").all()
-  ) as EinnahmeRow[];
-
-  const gelaufen = db.prepare("SELECT 1 FROM einnahmen_laeufe WHERE einnahme_id = ? AND periode = ?");
-  const buchen = db.prepare(
-    `INSERT INTO buchungen (datum, art, betrag, kategorie, empfaenger, konto, notiz, created_at)
-     VALUES (?, 'eingang', ?, ?, ?, ?, ?, ?)`
-  );
-  const merken = db.prepare(
-    "INSERT INTO einnahmen_laeufe (einnahme_id, periode, buchung_id, datum) VALUES (?, ?, ?, ?)"
-  );
+      ? await db.alle<EinnahmeRow>("SELECT * FROM einnahmen WHERE id = ? AND aktiv = 1", nurId)
+      : await db.alle<EinnahmeRow>("SELECT * FROM einnahmen WHERE aktiv = 1");
 
   let n = 0;
   for (const e of rows) {
@@ -213,24 +203,64 @@ function einnahmenAusfuehren(opts: { nurId?: number; vorziehen?: boolean } = {})
       const faellig = buchungsDatum(periode, e.tag);
       // Zukunft nicht vorwegnehmen — ausser bei "jetzt buchen".
       if (faellig > heute && !vorziehen) continue;
-      if (gelaufen.get(e.id, periode)) continue;
       const datum = faellig > heute ? heute : faellig;
-      const info = buchen.run(
-        datum, e.betrag, e.kategorie || null, e.name, e.konto || null, e.notiz || null, now()
-      );
-      merken.run(e.id, periode, info.lastInsertRowid as number, datum);
-      n++;
+
+      /*
+       * Die Sperre pruefen, buchen und die Sperre setzen sind EIN Vorgang.
+       *
+       * Solange die Datenbank synchron war, konnte zwischen diesen drei
+       * Schritten nichts dazwischenkommen. Jetzt schon: `einnahmen_laeufe` hat
+       * zwar einen zusammengesetzten Primaerschluessel, der die zweite Sperre
+       * ablehnt — aber die zugehoerige BUCHUNG waere dann bereits geschrieben
+       * und bliebe als Geisterbetrag im Jahresbericht stehen.
+       */
+      const gebucht = await db.transaktion(async () => {
+        const schon = await db.eine(
+          "SELECT 1 FROM einnahmen_laeufe WHERE einnahme_id = ? AND periode = ?", e.id, periode
+        );
+        if (schon) return false;
+        const info = await db.schreibe(
+          `INSERT INTO buchungen (datum, art, betrag, kategorie, empfaenger, konto, notiz, created_at)
+           VALUES (?, 'eingang', ?, ?, ?, ?, ?, ?)`,
+          datum, e.betrag, e.kategorie || null, e.name, e.konto || null, e.notiz || null, now()
+        );
+        await db.schreibe(
+          "INSERT INTO einnahmen_laeufe (einnahme_id, periode, buchung_id, datum) VALUES (?, ?, ?, ?)",
+          e.id, periode, info.id, datum
+        );
+        return true;
+      });
+      if (gebucht) n++;
     }
   }
   return n;
 }
 
+/**
+ * Derselbe Lauf, aber nie zwei davon gleichzeitig.
+ *
+ * Er haengt als Middleware vor JEDER Anfrage an dieses Modul; die Startseite
+ * loest beim Laden mehrere davon nebeneinander aus. Die Transaktion oben
+ * verhindert zwar Doppelbuchungen, aber zehn Laeufe, die gleichzeitig dieselbe
+ * Arbeit anfangen und neun davon wegwerfen, sind Verschwendung. Wer schon
+ * laeuft, nimmt die anderen mit.
+ */
+let laufendeAusfuehrung: Promise<number> | null = null;
+function einnahmenLauf(): Promise<number> {
+  if (!laufendeAusfuehrung) {
+    laufendeAusfuehrung = einnahmenAusfuehren().finally(() => {
+      laufendeAusfuehrung = null;
+    });
+  }
+  return laufendeAusfuehrung;
+}
+
 /** Summe der aktiven wiederkehrenden Einnahmen pro Monat. */
-function einnahmenProMonat(): number {
-  const r = db
-    .prepare("SELECT COALESCE(SUM(betrag), 0) s FROM einnahmen WHERE aktiv = 1")
-    .get() as { s: number };
-  return r.s;
+async function einnahmenProMonat(): Promise<number> {
+  const r = await db.eine<{ s: number }>(
+    "SELECT COALESCE(SUM(betrag), 0) s FROM einnahmen WHERE aktiv = 1"
+  );
+  return r!.s;
 }
 
 // --- Vertragslaufzeiten & Kuendigungsfristen ------------------------------
@@ -355,66 +385,66 @@ function vertragAusBody(b: Record<string, unknown>) {
 
 // --- Router ---------------------------------------------------------------
 
-const router = Router();
+const router = machRouter();
 
 // Vor jeder Anfrage faellige Einnahmen nachbuchen. Kostet nur ein paar
 // Selects und macht jede Antwort automatisch aktuell.
-router.use((_req, _res, next) => {
-  try { einnahmenAusfuehren(); } catch (e) { console.error("[haushalt] Einnahmen-Lauf:", e); }
+//
+// Wird abgewartet, nicht nebenher gestartet: Sonst antwortete die Abfrage der
+// Buchungen mit dem Stand VOR dem Lauf, und die frisch gebuchte Einnahme
+// erschiene erst beim naechsten Neuladen.
+router.use(async (_req, _res, next) => {
+  try { await einnahmenLauf(); } catch (e) { console.error("[haushalt] Einnahmen-Lauf:", e); }
   next();
 });
 
-router.get("/fixkosten", (_req, res) => {
-  const rows = db
-    .prepare("SELECT * FROM fixkosten ORDER BY aktiv DESC, kategorie, name")
-    .all() as (Record<string, unknown> & VertragFelder)[];
+router.get("/fixkosten", async (_req, res) => {
+  const rows = await db.alle<Record<string, unknown> & VertragFelder>(
+    "SELECT * FROM fixkosten ORDER BY aktiv DESC, kategorie, name"
+  );
   res.json(rows.map((r) => ({ ...r, vertrag: vertragsInfo(r) })));
 });
 
 /** Nur die Positionen mit Vertragsdaten, dringendste zuerst. */
-router.get("/vertraege", (_req, res) => {
-  const rows = db
-    .prepare("SELECT * FROM fixkosten WHERE aktiv = 1 AND vertrag_ende IS NOT NULL")
-    .all() as (Record<string, unknown> & VertragFelder)[];
+router.get("/vertraege", async (_req, res) => {
+  const rows = await db.alle<Record<string, unknown> & VertragFelder>(
+    "SELECT * FROM fixkosten WHERE aktiv = 1 AND vertrag_ende IS NOT NULL"
+  );
   const out = rows
     .map((r) => ({ ...r, vertrag: vertragsInfo(r)! }))
     .sort((a, b) => nachDringlichkeit(a.vertrag, b.vertrag));
   res.json(out);
 });
 
-router.post("/fixkosten", (req, res) => {
+router.post("/fixkosten", async (req, res) => {
   const b = req.body ?? {};
   const name = String(b.name ?? "").trim();
   if (!name) return res.status(400).json({ error: "Name fehlt" });
   const betrag = Number(b.betrag);
   if (!Number.isFinite(betrag) || betrag < 0) return res.status(400).json({ error: "ungültiger Betrag" });
   const v = vertragAusBody(b);
-  const info = db
-    .prepare(
-      `INSERT INTO fixkosten (name, betrag, intervall, faellig, konto, kategorie, aktiv, notiz,
-                              vertrag_ende, frist_wert, frist_einheit, verlaengerung, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      name, betrag, String(b.intervall ?? "monatlich"), b.faellig || null,
-      b.konto || null, b.kategorie || null, b.aktiv === false ? 0 : 1, b.notiz || null,
-      v.ende, v.wert, v.einheit, v.verlaengerung, now()
-    );
-  res.json({ id: info.lastInsertRowid });
+  const info = await db.schreibe(
+    `INSERT INTO fixkosten (name, betrag, intervall, faellig, konto, kategorie, aktiv, notiz,
+                            vertrag_ende, frist_wert, frist_einheit, verlaengerung, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    name, betrag, String(b.intervall ?? "monatlich"), b.faellig || null,
+    b.konto || null, b.kategorie || null, b.aktiv === false ? 0 : 1, b.notiz || null,
+    v.ende, v.wert, v.einheit, v.verlaengerung, now()
+  );
+  res.json({ id: info.id });
 });
 
-router.put("/fixkosten/:id", (req, res) => {
+router.put("/fixkosten/:id", async (req, res) => {
   const b = req.body ?? {};
   const name = String(b.name ?? "").trim();
   if (!name) return res.status(400).json({ error: "Name fehlt" });
   const betrag = Number(b.betrag);
   if (!Number.isFinite(betrag) || betrag < 0) return res.status(400).json({ error: "ungültiger Betrag" });
   const v = vertragAusBody(b);
-  db.prepare(
+  await db.schreibe(
     `UPDATE fixkosten SET name=?, betrag=?, intervall=?, faellig=?, konto=?, kategorie=?, aktiv=?, notiz=?,
                           vertrag_ende=?, frist_wert=?, frist_einheit=?, verlaengerung=?
-      WHERE id=?`
-  ).run(
+      WHERE id=?`,
     name, betrag, String(b.intervall ?? "monatlich"), b.faellig || null,
     b.konto || null, b.kategorie || null, b.aktiv === false ? 0 : 1, b.notiz || null,
     v.ende, v.wert, v.einheit, v.verlaengerung, req.params.id
@@ -422,16 +452,16 @@ router.put("/fixkosten/:id", (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete("/fixkosten/:id", (req, res) => {
-  db.prepare("DELETE FROM fixkosten WHERE id=?").run(req.params.id);
+router.delete("/fixkosten/:id", async (req, res) => {
+  await db.schreibe("DELETE FROM fixkosten WHERE id=?", req.params.id);
   res.json({ ok: true });
 });
 
 /** Summen: monatliche Last insgesamt, je Konto und je Kategorie. */
-router.get("/summary", (_req, res) => {
-  const rows = db
-    .prepare("SELECT betrag, intervall, konto, kategorie, aktiv FROM fixkosten WHERE aktiv = 1")
-    .all() as { betrag: number; intervall: string; konto: string | null; kategorie: string | null }[];
+router.get("/summary", async (_req, res) => {
+  const rows = await db.alle<{ betrag: number; intervall: string; konto: string | null; kategorie: string | null }>(
+    "SELECT betrag, intervall, konto, kategorie, aktiv FROM fixkosten WHERE aktiv = 1"
+  );
 
   let proMonat = 0;
   const jeKonto: Record<string, number> = {};
@@ -445,14 +475,14 @@ router.get("/summary", (_req, res) => {
     jeKategorie[c] = (jeKategorie[c] ?? 0) + m;
   }
 
-  const ohneBetrag = db
-    .prepare("SELECT COUNT(*) n FROM fixkosten WHERE aktiv = 1 AND betrag = 0")
-    .get() as { n: number };
+  const ohneBetrag = (await db.eine<{ n: number }>(
+    "SELECT COUNT(*) n FROM fixkosten WHERE aktiv = 1 AND betrag = 0"
+  ))!;
 
   const sortiert = (o: Record<string, number>) =>
     Object.entries(o).map(([name, betrag]) => ({ name, betrag })).sort((a, b) => b.betrag - a.betrag);
 
-  const einnahmen = einnahmenProMonat();
+  const einnahmen = await einnahmenProMonat();
 
   res.json({
     proMonat,
@@ -481,51 +511,48 @@ function tageBis(datum: string): number {
  * Alles, was die Uebersichtskachel braucht, in einer Antwort — statt vier
  * Einzelabfragen beim Rendern der Startseite.
  */
-router.get("/tile", (_req, res) => {
-  const fix = db
-    .prepare("SELECT betrag, intervall FROM fixkosten WHERE aktiv = 1")
-    .all() as { betrag: number; intervall: string }[];
+router.get("/tile", async (_req, res) => {
+  const fix = await db.alle<{ betrag: number; intervall: string }>(
+    "SELECT betrag, intervall FROM fixkosten WHERE aktiv = 1"
+  );
   const fixProMonat = fix.reduce((s, r) => s + monatsAnteil(r.betrag, r.intervall), 0);
-  const einnahmen = einnahmenProMonat();
+  const einnahmen = await einnahmenProMonat();
 
   // Laufender Monat aus echten Buchungen.
   const monat = periodeHeute();
-  const saldo = db
-    .prepare(
-      `SELECT COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag END), 0) AS ein,
-              COALESCE(SUM(CASE WHEN art = 'ausgang' THEN betrag END), 0) AS aus
-         FROM buchungen WHERE substr(datum, 1, 7) = ?`
-    )
-    .get(monat) as { ein: number; aus: number };
+  const saldo = (await db.eine<{ ein: number; aus: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag END), 0) AS ein,
+            COALESCE(SUM(CASE WHEN art = 'ausgang' THEN betrag END), 0) AS aus
+       FROM buchungen WHERE substr(datum, 1, 7) = ?`,
+    monat
+  ))!;
 
-  const schulden = db
-    .prepare(
-      `SELECT COALESCE(SUM(MAX(0, s.gesamt - COALESCE(
-                (SELECT SUM(betrag) FROM schulden_zahlungen z WHERE z.schuld_id = s.id), 0))), 0) AS offen,
-              COUNT(*) AS anzahl
-         FROM schulden s WHERE s.erledigt = 0`
-    )
-    .get() as { offen: number; anzahl: number };
+  const schulden = (await db.eine<{ offen: number; anzahl: number }>(
+    `SELECT COALESCE(SUM(MAX(0, s.gesamt - COALESCE(
+              (SELECT SUM(betrag) FROM schulden_zahlungen z WHERE z.schuld_id = s.id), 0))), 0) AS offen,
+            COUNT(*) AS anzahl
+       FROM schulden s WHERE s.erledigt = 0`
+  ))!;
 
   // Naechster Zahltag ueber alle aktiven Einnahmen — der frueheste gewinnt.
-  const aktive = db.prepare("SELECT * FROM einnahmen WHERE aktiv = 1").all() as EinnahmeRow[];
+  const aktive = await db.alle<EinnahmeRow>("SELECT * FROM einnahmen WHERE aktiv = 1");
   let naechste: { name: string; datum: string; betrag: number; tage: number } | null = null;
   for (const e of aktive) {
-    const datum = naechsterTermin(e);
+    const datum = await naechsterTermin(e);
     if (!datum) continue;
     if (!naechste || datum < naechste.datum)
       naechste = { name: e.name, datum, betrag: e.betrag, tage: tageBis(datum) };
   }
 
-  const ohneBetrag = db
-    .prepare("SELECT COUNT(*) n FROM fixkosten WHERE aktiv = 1 AND betrag = 0")
-    .get() as { n: number };
+  const ohneBetrag = (await db.eine<{ n: number }>(
+    "SELECT COUNT(*) n FROM fixkosten WHERE aktiv = 1 AND betrag = 0"
+  ))!;
 
   // Dringendste Kuendigungsfrist — nur was wirklich druckt (<= 90 Tage) oder
   // gerade verpasst wurde.
-  const vertraege = db
-    .prepare("SELECT name, vertrag_ende, frist_wert, frist_einheit, verlaengerung FROM fixkosten WHERE aktiv = 1 AND vertrag_ende IS NOT NULL")
-    .all() as ({ name: string } & VertragFelder)[];
+  const vertraege = await db.alle<{ name: string } & VertragFelder>(
+    "SELECT name, vertrag_ende, frist_wert, frist_einheit, verlaengerung FROM fixkosten WHERE aktiv = 1 AND vertrag_ende IS NOT NULL"
+  );
   let frist: { name: string; kuendbarBis: string; tage: number; status: VertragStatus } | null = null;
   let bester: VertragsInfo | null = null;
   for (const v of vertraege) {
@@ -557,33 +584,36 @@ router.get("/tile", (_req, res) => {
  * Naechster Zahltag: die erste Periode ab heute, die noch nicht gebucht ist.
  * null, wenn die Reihe ausgelaufen ist.
  */
-function naechsterTermin(e: EinnahmeRow): string | null {
+async function naechsterTermin(e: EinnahmeRow): Promise<string | null> {
   const heute = periodeHeute();
   let periode = e.start > heute ? e.start : heute;
-  const gelaufen = db.prepare("SELECT 1 FROM einnahmen_laeufe WHERE einnahme_id = ? AND periode = ?");
   for (let i = 0; i < 24; i++) {
     if (e.ende && periode > e.ende) return null;
-    if (!gelaufen.get(e.id, periode)) return buchungsDatum(periode, e.tag);
+    const gelaufen = await db.eine(
+      "SELECT 1 FROM einnahmen_laeufe WHERE einnahme_id = ? AND periode = ?", e.id, periode
+    );
+    if (!gelaufen) return buchungsDatum(periode, e.tag);
     const [j, m] = periode.split("-").map(Number);
     periode = m === 12 ? `${j + 1}-01` : `${j}-${p2(m + 1)}`;
   }
   return null;
 }
 
-router.get("/einnahmen", (_req, res) => {
-  const rows = db
-    .prepare("SELECT * FROM einnahmen ORDER BY aktiv DESC, tag, name")
-    .all() as EinnahmeRow[];
-  const letzter = db.prepare(
-    "SELECT periode, datum FROM einnahmen_laeufe WHERE einnahme_id = ? ORDER BY periode DESC LIMIT 1"
-  );
-  res.json(
-    rows.map((e) => ({
+router.get("/einnahmen", async (_req, res) => {
+  const rows = await db.alle<EinnahmeRow>("SELECT * FROM einnahmen ORDER BY aktiv DESC, tag, name");
+  const out = [];
+  for (const e of rows) {
+    out.push({
       ...e,
-      naechster: e.aktiv ? naechsterTermin(e) : null,
-      zuletzt: (letzter.get(e.id) as { periode: string; datum: string } | undefined) ?? null,
-    }))
-  );
+      naechster: e.aktiv ? await naechsterTermin(e) : null,
+      zuletzt:
+        (await db.eine<{ periode: string; datum: string }>(
+          "SELECT periode, datum FROM einnahmen_laeufe WHERE einnahme_id = ? ORDER BY periode DESC LIMIT 1",
+          e.id
+        )) ?? null,
+    });
+  }
+  res.json(out);
 });
 
 /** Gemeinsame Pruefung fuer POST und PUT. */
@@ -604,28 +634,28 @@ function einnahmeAusBody(b: Record<string, unknown>) {
   };
 }
 
-router.post("/einnahmen", (req, res) => {
+router.post("/einnahmen", async (req, res) => {
   const v = einnahmeAusBody(req.body ?? {});
   if ("error" in v) return res.status(400).json({ error: v.error });
-  const info = db
-    .prepare(
-      `INSERT INTO einnahmen (name, betrag, tag, kategorie, konto, notiz, start, ende, aktiv, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(v.name, v.betrag, v.tag, v.kategorie, v.konto, v.notiz, v.start, v.ende, v.aktiv, now());
+  const info = await db.schreibe(
+    `INSERT INTO einnahmen (name, betrag, tag, kategorie, konto, notiz, start, ende, aktiv, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    v.name, v.betrag, v.tag, v.kategorie, v.konto, v.notiz, v.start, v.ende, v.aktiv, now()
+  );
   // Rueckwirkend faellige Monate direkt mitnehmen.
-  const gebucht = einnahmenAusfuehren({ nurId: Number(info.lastInsertRowid) });
-  res.json({ id: info.lastInsertRowid, gebucht });
+  const gebucht = await einnahmenAusfuehren({ nurId: info.id });
+  res.json({ id: info.id, gebucht });
 });
 
-router.put("/einnahmen/:id", (req, res) => {
+router.put("/einnahmen/:id", async (req, res) => {
   const v = einnahmeAusBody(req.body ?? {});
   if ("error" in v) return res.status(400).json({ error: v.error });
-  db.prepare(
+  await db.schreibe(
     `UPDATE einnahmen SET name=?, betrag=?, tag=?, kategorie=?, konto=?, notiz=?, start=?, ende=?, aktiv=?
-      WHERE id=?`
-  ).run(v.name, v.betrag, v.tag, v.kategorie, v.konto, v.notiz, v.start, v.ende, v.aktiv, req.params.id);
-  const gebucht = einnahmenAusfuehren({ nurId: Number(req.params.id) });
+      WHERE id=?`,
+    v.name, v.betrag, v.tag, v.kategorie, v.konto, v.notiz, v.start, v.ende, v.aktiv, req.params.id
+  );
+  const gebucht = await einnahmenAusfuehren({ nurId: Number(req.params.id) });
   res.json({ ok: true, gebucht });
 });
 
@@ -633,27 +663,28 @@ router.put("/einnahmen/:id", (req, res) => {
  * Loeschen entfernt nur die Regel. Bereits gebuchte Einnahmen bleiben stehen —
  * sie sind ja tatsaechlich geflossen und gehoeren in den Jahresbericht.
  */
-router.delete("/einnahmen/:id", (req, res) => {
-  db.prepare("DELETE FROM einnahmen_laeufe WHERE einnahme_id=?").run(req.params.id);
-  db.prepare("DELETE FROM einnahmen WHERE id=?").run(req.params.id);
+router.delete("/einnahmen/:id", async (req, res) => {
+  await db.transaktion(async () => {
+    await db.schreibe("DELETE FROM einnahmen_laeufe WHERE einnahme_id=?", req.params.id);
+    await db.schreibe("DELETE FROM einnahmen WHERE id=?", req.params.id);
+  });
   res.json({ ok: true });
 });
 
 /** Zahltag vorziehen: den laufenden Monat sofort buchen. */
-router.post("/einnahmen/:id/jetzt", (req, res) => {
-  const gebucht = einnahmenAusfuehren({ nurId: Number(req.params.id), vorziehen: true });
+router.post("/einnahmen/:id/jetzt", async (req, res) => {
+  const gebucht = await einnahmenAusfuehren({ nurId: Number(req.params.id), vorziehen: true });
   res.json({ gebucht });
 });
 
-router.get("/einnahmen/:id/laeufe", (req, res) => {
+router.get("/einnahmen/:id/laeufe", async (req, res) => {
   res.json(
-    db
-      .prepare(
-        `SELECT l.periode, l.datum, l.buchung_id, b.betrag
-           FROM einnahmen_laeufe l LEFT JOIN buchungen b ON b.id = l.buchung_id
-          WHERE l.einnahme_id = ? ORDER BY l.periode DESC`
-      )
-      .all(req.params.id)
+    await db.alle(
+      `SELECT l.periode, l.datum, l.buchung_id, b.betrag
+         FROM einnahmen_laeufe l LEFT JOIN buchungen b ON b.id = l.buchung_id
+        WHERE l.einnahme_id = ? ORDER BY l.periode DESC`,
+      req.params.id
+    )
   );
 });
 
@@ -672,86 +703,80 @@ router.get("/einnahmen/:id/laeufe", (req, res) => {
  * mitgelieferte und pflegt sich von selbst. Haeufigstes zuerst, damit die
  * Vorschlaege oben stehen, die man wirklich braucht.
  */
-router.get("/vorschlaege", (_req, res) => {
-  const spalte = (name: "empfaenger" | "kategorie" | "konto") =>
+router.get("/vorschlaege", async (_req, res) => {
+  const spalte = async (name: "empfaenger" | "kategorie" | "konto") =>
     (
-      db
-        .prepare(
-          `SELECT ${name} AS wert, COUNT(*) AS n FROM buchungen
-            WHERE ${name} IS NOT NULL AND TRIM(${name}) <> ''
-            GROUP BY ${name} ORDER BY n DESC, wert COLLATE NOCASE LIMIT 60`
-        )
-        .all() as { wert: string }[]
+      await db.alle<{ wert: string }>(
+        `SELECT ${name} AS wert, COUNT(*) AS n FROM buchungen
+          WHERE ${name} IS NOT NULL AND TRIM(${name}) <> ''
+          GROUP BY ${name} ORDER BY n DESC, wert COLLATE NOCASE LIMIT 60`
+      )
     ).map((r) => r.wert);
 
   res.json({
-    empfaenger: spalte("empfaenger"),
-    kategorien: spalte("kategorie"),
-    konten: spalte("konto"),
+    empfaenger: await spalte("empfaenger"),
+    kategorien: await spalte("kategorie"),
+    konten: await spalte("konto"),
   });
 });
 
-router.get("/buchungen", (req, res) => {
+router.get("/buchungen", async (req, res) => {
   const from = String(req.query.from ?? "0000-00-00");
   const to = String(req.query.to ?? "9999-99-99");
-  const rows = db
-    .prepare(
-      `SELECT b.*, (SELECT l.einnahme_id FROM einnahmen_laeufe l WHERE l.buchung_id = b.id) AS einnahme_id
-         FROM buchungen b WHERE b.datum BETWEEN ? AND ? ORDER BY b.datum DESC, b.id DESC`
-    )
-    .all(from, to);
+  const rows = await db.alle(
+    `SELECT b.*, (SELECT l.einnahme_id FROM einnahmen_laeufe l WHERE l.buchung_id = b.id) AS einnahme_id
+       FROM buchungen b WHERE b.datum BETWEEN ? AND ? ORDER BY b.datum DESC, b.id DESC`,
+    from, to
+  );
   res.json(rows);
 });
 
-router.post("/buchungen", (req, res) => {
+router.post("/buchungen", async (req, res) => {
   const b = req.body ?? {};
   if (!b.datum) return res.status(400).json({ error: "Datum fehlt" });
   const betrag = Number(b.betrag);
   if (!Number.isFinite(betrag) || betrag <= 0) return res.status(400).json({ error: "ungültiger Betrag" });
   const art = b.art === "eingang" ? "eingang" : "ausgang";
-  const info = db
-    .prepare(
-      `INSERT INTO buchungen (datum, art, betrag, kategorie, empfaenger, konto, notiz, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(b.datum, art, betrag, b.kategorie || null, b.empfaenger || null, b.konto || null, b.notiz || null, now());
-  res.json({ id: info.lastInsertRowid });
+  const info = await db.schreibe(
+    `INSERT INTO buchungen (datum, art, betrag, kategorie, empfaenger, konto, notiz, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    b.datum, art, betrag, b.kategorie || null, b.empfaenger || null, b.konto || null, b.notiz || null, now()
+  );
+  res.json({ id: info.id });
 });
 
-router.put("/buchungen/:id", (req, res) => {
+router.put("/buchungen/:id", async (req, res) => {
   const b = req.body ?? {};
   const betrag = Number(b.betrag);
   if (!b.datum) return res.status(400).json({ error: "Datum fehlt" });
   if (!Number.isFinite(betrag) || betrag <= 0) return res.status(400).json({ error: "ungültiger Betrag" });
-  db.prepare(
-    `UPDATE buchungen SET datum=?, art=?, betrag=?, kategorie=?, empfaenger=?, konto=?, notiz=? WHERE id=?`
-  ).run(
+  await db.schreibe(
+    `UPDATE buchungen SET datum=?, art=?, betrag=?, kategorie=?, empfaenger=?, konto=?, notiz=? WHERE id=?`,
     b.datum, b.art === "eingang" ? "eingang" : "ausgang", betrag,
     b.kategorie || null, b.empfaenger || null, b.konto || null, b.notiz || null, req.params.id
   );
   res.json({ ok: true });
 });
 
-router.delete("/buchungen/:id", (req, res) => {
-  db.prepare("DELETE FROM buchungen WHERE id=?").run(req.params.id);
+router.delete("/buchungen/:id", async (req, res) => {
+  await db.schreibe("DELETE FROM buchungen WHERE id=?", req.params.id);
   res.json({ ok: true });
 });
 
 // --- Jahresbericht --------------------------------------------------------
 
 /** Monatszeilen eines Jahres plus Jahressumme. */
-router.get("/jahr/:jahr", (req, res) => {
+router.get("/jahr/:jahr", async (req, res) => {
   const jahr = Number(req.params.jahr);
   if (!Number.isFinite(jahr)) return res.status(400).json({ error: "ungültiges Jahr" });
-  const rows = db
-    .prepare(
-      `SELECT substr(datum, 6, 2) AS monat,
-              COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag END), 0) AS eingang,
-              COALESCE(SUM(CASE WHEN art = 'ausgang' THEN betrag END), 0) AS ausgang
-         FROM buchungen WHERE substr(datum, 1, 4) = ?
-        GROUP BY monat ORDER BY monat`
-    )
-    .all(String(jahr)) as { monat: string; eingang: number; ausgang: number }[];
+  const rows = await db.alle<{ monat: string; eingang: number; ausgang: number }>(
+    `SELECT substr(datum, 6, 2) AS monat,
+            COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag END), 0) AS eingang,
+            COALESCE(SUM(CASE WHEN art = 'ausgang' THEN betrag END), 0) AS ausgang
+       FROM buchungen WHERE substr(datum, 1, 4) = ?
+      GROUP BY monat ORDER BY monat`,
+    String(jahr)
+  );
 
   const monate = Array.from({ length: 12 }, (_, i) => {
     const key = String(i + 1).padStart(2, "0");
@@ -760,27 +785,25 @@ router.get("/jahr/:jahr", (req, res) => {
   });
   const eingang = monate.reduce((s, m) => s + m.eingang, 0);
   const ausgang = monate.reduce((s, m) => s + m.ausgang, 0);
-  const uebertrag = db.prepare("SELECT * FROM jahres_uebertrag WHERE jahr = ?").get(jahr) as
-    | { jahr: number; eingang: number; ausgang: number; notiz: string | null }
-    | undefined;
+  const uebertrag = await db.eine<{ jahr: number; eingang: number; ausgang: number; notiz: string | null }>(
+    "SELECT * FROM jahres_uebertrag WHERE jahr = ?", jahr
+  );
 
   res.json({ jahr, monate, eingang, ausgang, differenz: eingang - ausgang, uebertrag: uebertrag ?? null });
 });
 
 /** Alle Jahre im Überblick — echte Buchungen und Altbestand zusammengeführt. */
-router.get("/jahre", (_req, res) => {
-  const echte = db
-    .prepare(
-      `SELECT CAST(substr(datum, 1, 4) AS INTEGER) AS jahr,
-              COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag END), 0) AS eingang,
-              COALESCE(SUM(CASE WHEN art = 'ausgang' THEN betrag END), 0) AS ausgang,
-              COUNT(*) AS buchungen
-         FROM buchungen GROUP BY jahr`
-    )
-    .all() as { jahr: number; eingang: number; ausgang: number; buchungen: number }[];
-  const alte = db.prepare("SELECT * FROM jahres_uebertrag").all() as {
-    jahr: number; eingang: number; ausgang: number; notiz: string | null;
-  }[];
+router.get("/jahre", async (_req, res) => {
+  const echte = await db.alle<{ jahr: number; eingang: number; ausgang: number; buchungen: number }>(
+    `SELECT CAST(substr(datum, 1, 4) AS INTEGER) AS jahr,
+            COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag END), 0) AS eingang,
+            COALESCE(SUM(CASE WHEN art = 'ausgang' THEN betrag END), 0) AS ausgang,
+            COUNT(*) AS buchungen
+       FROM buchungen GROUP BY jahr`
+  );
+  const alte = await db.alle<{ jahr: number; eingang: number; ausgang: number; notiz: string | null }>(
+    "SELECT * FROM jahres_uebertrag"
+  );
 
   const map = new Map<number, { jahr: number; eingang: number; ausgang: number; buchungen: number; historisch: boolean }>();
   for (const a of alte) map.set(a.jahr, { jahr: a.jahr, eingang: a.eingang, ausgang: a.ausgang, buchungen: 0, historisch: true });
@@ -795,75 +818,83 @@ router.get("/jahre", (_req, res) => {
   res.json(jahre);
 });
 
-router.put("/jahre/:jahr", (req, res) => {
+router.put("/jahre/:jahr", async (req, res) => {
   const jahr = Number(req.params.jahr);
   const b = req.body ?? {};
-  db.prepare(
+  await db.schreibe(
     `INSERT INTO jahres_uebertrag (jahr, eingang, ausgang, notiz) VALUES (?, ?, ?, ?)
-     ON CONFLICT(jahr) DO UPDATE SET eingang = excluded.eingang, ausgang = excluded.ausgang, notiz = excluded.notiz`
-  ).run(jahr, Number(b.eingang) || 0, Number(b.ausgang) || 0, b.notiz || null);
+     ON CONFLICT(jahr) DO UPDATE SET eingang = excluded.eingang, ausgang = excluded.ausgang, notiz = excluded.notiz`,
+    jahr, Number(b.eingang) || 0, Number(b.ausgang) || 0, b.notiz || null
+  );
   res.json({ ok: true });
 });
 
 // --- Schulden -------------------------------------------------------------
 
-router.get("/schulden", (_req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT s.*,
-              COALESCE((SELECT SUM(betrag) FROM schulden_zahlungen z WHERE z.schuld_id = s.id), 0) AS bezahlt
-         FROM schulden s ORDER BY s.erledigt, s.person`
-    )
-    .all() as { id: number; gesamt: number; bezahlt: number }[];
+router.get("/schulden", async (_req, res) => {
+  const rows = await db.alle<{ id: number; gesamt: number; bezahlt: number }>(
+    `SELECT s.*,
+            COALESCE((SELECT SUM(betrag) FROM schulden_zahlungen z WHERE z.schuld_id = s.id), 0) AS bezahlt
+       FROM schulden s ORDER BY s.erledigt, s.person`
+  );
   res.json(rows.map((r) => ({ ...r, offen: Math.max(0, r.gesamt - r.bezahlt) })));
 });
 
-router.post("/schulden", (req, res) => {
+router.post("/schulden", async (req, res) => {
   const b = req.body ?? {};
   const person = String(b.person ?? "").trim();
   if (!person) return res.status(400).json({ error: "Name fehlt" });
   const gesamt = Number(b.gesamt);
   if (!Number.isFinite(gesamt) || gesamt < 0) return res.status(400).json({ error: "ungültiger Betrag" });
-  const info = db
-    .prepare("INSERT INTO schulden (person, gesamt, notiz, created_at) VALUES (?, ?, ?, ?)")
-    .run(person, gesamt, b.notiz || null, now());
-  res.json({ id: info.lastInsertRowid });
+  const info = await db.schreibe(
+    "INSERT INTO schulden (person, gesamt, notiz, created_at) VALUES (?, ?, ?, ?)",
+    person, gesamt, b.notiz || null, now()
+  );
+  res.json({ id: info.id });
 });
 
-router.put("/schulden/:id", (req, res) => {
+router.put("/schulden/:id", async (req, res) => {
   const b = req.body ?? {};
   const person = String(b.person ?? "").trim();
   if (!person) return res.status(400).json({ error: "Name fehlt" });
-  db.prepare("UPDATE schulden SET person=?, gesamt=?, notiz=?, erledigt=? WHERE id=?").run(
+  await db.schreibe(
+    "UPDATE schulden SET person=?, gesamt=?, notiz=?, erledigt=? WHERE id=?",
     person, Number(b.gesamt) || 0, b.notiz || null, b.erledigt ? 1 : 0, req.params.id
   );
   res.json({ ok: true });
 });
 
-router.delete("/schulden/:id", (req, res) => {
-  db.prepare("DELETE FROM schulden_zahlungen WHERE schuld_id=?").run(req.params.id);
-  db.prepare("DELETE FROM schulden WHERE id=?").run(req.params.id);
+router.delete("/schulden/:id", async (req, res) => {
+  // Aussenstand und seine Rueckzahlungen sind eine Einheit: bliebe der Posten
+  // nach einem Fehler stehen, staende er ploetzlich wieder in voller Hoehe da.
+  await db.transaktion(async () => {
+    await db.schreibe("DELETE FROM schulden_zahlungen WHERE schuld_id=?", req.params.id);
+    await db.schreibe("DELETE FROM schulden WHERE id=?", req.params.id);
+  });
   res.json({ ok: true });
 });
 
-router.get("/schulden/:id/zahlungen", (req, res) => {
+router.get("/schulden/:id/zahlungen", async (req, res) => {
   res.json(
-    db.prepare("SELECT * FROM schulden_zahlungen WHERE schuld_id=? ORDER BY datum DESC, id DESC").all(req.params.id)
+    await db.alle(
+      "SELECT * FROM schulden_zahlungen WHERE schuld_id=? ORDER BY datum DESC, id DESC", req.params.id
+    )
   );
 });
 
-router.post("/schulden/:id/zahlungen", (req, res) => {
+router.post("/schulden/:id/zahlungen", async (req, res) => {
   const b = req.body ?? {};
   const betrag = Number(b.betrag);
   if (!Number.isFinite(betrag) || betrag <= 0) return res.status(400).json({ error: "ungültiger Betrag" });
-  const info = db
-    .prepare("INSERT INTO schulden_zahlungen (schuld_id, datum, betrag, notiz) VALUES (?, ?, ?, ?)")
-    .run(req.params.id, b.datum || heuteLokal(), betrag, b.notiz || null);
-  res.json({ id: info.lastInsertRowid });
+  const info = await db.schreibe(
+    "INSERT INTO schulden_zahlungen (schuld_id, datum, betrag, notiz) VALUES (?, ?, ?, ?)",
+    req.params.id, b.datum || heuteLokal(), betrag, b.notiz || null
+  );
+  res.json({ id: info.id });
 });
 
-router.delete("/zahlungen/:id", (req, res) => {
-  db.prepare("DELETE FROM schulden_zahlungen WHERE id=?").run(req.params.id);
+router.delete("/zahlungen/:id", async (req, res) => {
+  await db.schreibe("DELETE FROM schulden_zahlungen WHERE id=?", req.params.id);
   res.json({ ok: true });
 });
 
@@ -876,12 +907,12 @@ router.delete("/zahlungen/:id", (req, res) => {
  * - **Zahltage** der wiederkehrenden Einnahmen, ueber `buchungsDatum()`, das
  *   den Tag aufs Monatsende kappt (der 31. im Februar wird zum 28./29.).
  */
-function termine(von: string, bis: string): Termin[] {
+async function termine(von: string, bis: string): Promise<Termin[]> {
   const ergebnis: Termin[] = [];
 
-  const posten = db.prepare("SELECT * FROM fixkosten WHERE aktiv = 1").all() as (VertragFelder & {
-    id: number; name: string;
-  })[];
+  const posten = await db.alle<VertragFelder & { id: number; name: string }>(
+    "SELECT * FROM fixkosten WHERE aktiv = 1"
+  );
   for (const p of posten) {
     const info = vertragsInfo(p);
     if (!info) continue;
@@ -900,7 +931,7 @@ function termine(von: string, bis: string): Termin[] {
     });
   }
 
-  const einnahmen = db.prepare("SELECT * FROM einnahmen WHERE aktiv = 1").all() as EinnahmeRow[];
+  const einnahmen = await db.alle<EinnahmeRow>("SELECT * FROM einnahmen WHERE aktiv = 1");
   for (const e of einnahmen) {
     // Jeden Monat im Fenster einzeln pruefen — ein Zeitraum kann zwei
     // Monatswechsel enthalten, wenn jemand weit nach vorne schaut.
@@ -923,14 +954,15 @@ function termine(von: string, bis: string): Termin[] {
 }
 
 /** Meldung an die globale Suche: Fixkosten, Buchungen, Aussenstaende. */
-function suche(begriff: string, grenze: number): Treffer[] {
+async function suche(begriff: string, grenze: number): Promise<Treffer[]> {
   const m = `%${begriff}%`;
   const je = Math.max(2, Math.floor(grenze / 3));
   const treffer: Treffer[] = [];
 
-  for (const f of db
-    .prepare("SELECT id, name, betrag, kategorie FROM fixkosten WHERE name LIKE ? OR kategorie LIKE ? OR notiz LIKE ? LIMIT ?")
-    .all(m, m, m, je) as { id: number; name: string; betrag: number; kategorie: string | null }[]) {
+  for (const f of await db.alle<{ id: number; name: string; betrag: number; kategorie: string | null }>(
+    "SELECT id, name, betrag, kategorie FROM fixkosten WHERE name LIKE ? OR kategorie LIKE ? OR notiz LIKE ? LIMIT ?",
+    m, m, m, je
+  )) {
     treffer.push({
       id: `haushalt:fixkost:${f.id}`,
       titel: f.name,
@@ -940,15 +972,14 @@ function suche(begriff: string, grenze: number): Treffer[] {
     });
   }
 
-  for (const b of db
-    .prepare(
-      `SELECT id, datum, art, betrag, empfaenger, notiz FROM buchungen
-        WHERE empfaenger LIKE ? OR notiz LIKE ? OR kategorie LIKE ?
-        ORDER BY datum DESC LIMIT ?`
-    )
-    .all(m, m, m, je) as {
-      id: number; datum: string; art: string; betrag: number; empfaenger: string | null; notiz: string | null;
-    }[]) {
+  for (const b of await db.alle<{
+    id: number; datum: string; art: string; betrag: number; empfaenger: string | null; notiz: string | null;
+  }>(
+    `SELECT id, datum, art, betrag, empfaenger, notiz FROM buchungen
+      WHERE empfaenger LIKE ? OR notiz LIKE ? OR kategorie LIKE ?
+      ORDER BY datum DESC LIMIT ?`,
+    m, m, m, je
+  )) {
     treffer.push({
       id: `haushalt:buchung:${b.id}`,
       titel: b.empfaenger || b.notiz || "Buchung",
@@ -959,9 +990,10 @@ function suche(begriff: string, grenze: number): Treffer[] {
     });
   }
 
-  for (const a of db
-    .prepare("SELECT id, person, gesamt FROM schulden WHERE person LIKE ? OR notiz LIKE ? LIMIT ?")
-    .all(m, m, je) as { id: number; person: string; gesamt: number }[]) {
+  for (const a of await db.alle<{ id: number; person: string; gesamt: number }>(
+    "SELECT id, person, gesamt FROM schulden WHERE person LIKE ? OR notiz LIKE ? LIMIT ?",
+    m, m, je
+  )) {
     treffer.push({
       id: `haushalt:aussenstand:${a.id}`,
       titel: a.person,
@@ -981,7 +1013,7 @@ function suche(begriff: string, grenze: number): Treffer[] {
  * Klicks (Haushalt → Fixkosten → Fuss der Tabelle). Sie darf als einzige
  * negativ werden — dann ist sie rot, und das ist keine Dekoration.
  */
-function profil(von: string, bis: string): ProfilBeitrag {
+async function profil(von: string, bis: string): Promise<ProfilBeitrag> {
   /**
    * Mit Tausenderpunkt und echtem Minuszeichen (U+2212, nicht dem
    * Bindestrich). Bei 24 Pixel Schriftgroesse ist „15918,00" eine Ziffernkette
@@ -993,41 +1025,36 @@ function profil(von: string, bis: string): ProfilBeitrag {
       maximumFractionDigits: 2,
     })} €`;
 
-  const fix = db
-    .prepare("SELECT betrag, intervall FROM fixkosten WHERE aktiv = 1")
-    .all() as { betrag: number; intervall: string }[];
+  const fix = await db.alle<{ betrag: number; intervall: string }>(
+    "SELECT betrag, intervall FROM fixkosten WHERE aktiv = 1"
+  );
   const fixProMonat = fix.reduce((s, r) => s + monatsAnteil(r.betrag, r.intervall), 0);
-  const einnahmen = einnahmenProMonat();
+  const einnahmen = await einnahmenProMonat();
   const uebrig = einnahmen - fixProMonat;
 
   const jahr = heuteLokal().slice(0, 4);
-  const saldo = db
-    .prepare(
-      `SELECT COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag END), 0) AS ein,
-              COALESCE(SUM(CASE WHEN art = 'ausgang' THEN betrag END), 0) AS aus,
-              COUNT(*) AS n
-         FROM buchungen WHERE substr(datum, 1, 4) = ?`
-    )
-    .get(jahr) as { ein: number; aus: number; n: number };
+  const saldo = (await db.eine<{ ein: number; aus: number; n: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag END), 0) AS ein,
+            COALESCE(SUM(CASE WHEN art = 'ausgang' THEN betrag END), 0) AS aus,
+            COUNT(*) AS n
+       FROM buchungen WHERE substr(datum, 1, 4) = ?`,
+    jahr
+  ))!;
 
-  const offen = db
-    .prepare(
-      `SELECT COALESCE(SUM(MAX(0, s.gesamt - COALESCE(
-                (SELECT SUM(betrag) FROM schulden_zahlungen z WHERE z.schuld_id = s.id), 0))), 0) AS summe,
-              COUNT(*) AS n
-         FROM schulden s WHERE s.erledigt = 0`
-    )
-    .get() as { summe: number; n: number };
+  const offen = (await db.eine<{ summe: number; n: number }>(
+    `SELECT COALESCE(SUM(MAX(0, s.gesamt - COALESCE(
+              (SELECT SUM(betrag) FROM schulden_zahlungen z WHERE z.schuld_id = s.id), 0))), 0) AS summe,
+            COUNT(*) AS n
+       FROM schulden s WHERE s.erledigt = 0`
+  ))!;
 
-  const letzte = db
-    .prepare(
-      `SELECT id, datum, art, betrag, empfaenger, kategorie, notiz FROM buchungen
-        ORDER BY datum DESC, id DESC LIMIT 6`
-    )
-    .all() as {
-      id: number; datum: string; art: string; betrag: number;
-      empfaenger: string | null; kategorie: string | null; notiz: string | null;
-    }[];
+  const letzte = await db.alle<{
+    id: number; datum: string; art: string; betrag: number;
+    empfaenger: string | null; kategorie: string | null; notiz: string | null;
+  }>(
+    `SELECT id, datum, art, betrag, empfaenger, kategorie, notiz FROM buchungen
+      ORDER BY datum DESC, id DESC LIMIT 6`
+  );
 
   const zahlen: ProfilZahl[] = [
     { id: "haushalt:fix", wert: euro(fixProMonat), label: "fest im Monat", hinweis: `${fix.length} Positionen` },
@@ -1058,7 +1085,7 @@ function profil(von: string, bis: string): ProfilBeitrag {
 
   return {
     zahlen,
-    tage: tageZaehlen("buchungen", "datum", von, bis),
+    tage: await tageZaehlen("buchungen", "datum", von, bis),
     ereignisse: letzte.map((b) => ({
       id: `haushalt:buchung:${b.id}`,
       datum: b.datum,
@@ -1067,7 +1094,7 @@ function profil(von: string, bis: string): ProfilBeitrag {
       art: b.art === "eingang" ? "Eingang" : "Ausgang",
       modul: "haushalt",
     })),
-    seit: fruehestes("buchungen", "datum"),
+    seit: await fruehestes("buchungen", "datum"),
   };
 }
 
@@ -1079,14 +1106,14 @@ function profil(von: string, bis: string): ProfilBeitrag {
  * vergleicht, sondern zwei Richtungen desselben Kontos. Gruen nach oben, rot
  * nach unten, und der Abstand zur Nulllinie ist die Antwort.
  */
-function diagramme(von: string, bis: string): Diagramm[] {
+async function diagramme(von: string, bis: string): Promise<Diagramm[]> {
   const euro = (n: number) =>
     `${n < 0 ? "−" : ""}${Math.abs(n).toLocaleString("de-DE", { maximumFractionDigits: 0 })} €`;
 
   const out: Diagramm[] = [];
 
-  const ein = jeMonat("buchungen", "datum", "COALESCE(SUM(betrag),0)", von, bis, "art = 'eingang'");
-  const aus = jeMonat("buchungen", "datum", "COALESCE(SUM(betrag),0)", von, bis, "art = 'ausgang'");
+  const ein = await jeMonat("buchungen", "datum", "COALESCE(SUM(betrag),0)", von, bis, "art = 'eingang'");
+  const aus = await jeMonat("buchungen", "datum", "COALESCE(SUM(betrag),0)", von, bis, "art = 'ausgang'");
   const summeEin = ein.reduce((s, p) => s + p.y, 0);
   const summeAus = aus.reduce((s, p) => s + p.y, 0);
 
@@ -1110,9 +1137,9 @@ function diagramme(von: string, bis: string): Diagramm[] {
 
   // Fixkosten sind ein Bestand, kein Verlauf — sie aendern sich selten, aber
   // man will wissen, WOHIN sie gehen. Ein Monatsanteil je Kategorie.
-  const kat = db
-    .prepare("SELECT betrag, intervall, kategorie FROM fixkosten WHERE aktiv = 1 AND betrag > 0")
-    .all() as { betrag: number; intervall: string; kategorie: string | null }[];
+  const kat = await db.alle<{ betrag: number; intervall: string; kategorie: string | null }>(
+    "SELECT betrag, intervall, kategorie FROM fixkosten WHERE aktiv = 1 AND betrag > 0"
+  );
   if (kat.length >= 2) {
     const summen = new Map<string, number>();
     for (const r of kat) {
@@ -1144,6 +1171,7 @@ export const haushaltModule: ServerModule = {
   id: "haushalt",
   title: "Haushalt",
   router,
+  einrichten,
   termine,
   suche,
   profil,

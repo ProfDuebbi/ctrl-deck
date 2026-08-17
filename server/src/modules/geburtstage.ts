@@ -1,21 +1,23 @@
-import { Router } from "express";
+import { machRouter } from "../route.js";
 import { db } from "../db.js";
 import type { ProfilBeitrag, ProfilZahl, ServerModule, Termin, Treffer } from "./index.js";
 
 // --- Schema ---------------------------------------------------------------
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS geburtstage (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    name       TEXT NOT NULL,
-    tag        INTEGER NOT NULL,   -- 1-31
-    monat      INTEGER NOT NULL,   -- 1-12
-    jahr       INTEGER,            -- Geburtsjahr, falls bekannt
-    verstorben INTEGER,            -- Todesjahr; gesetzt = Gedenktag statt Geburtstag
-    notiz      TEXT,
-    created_at TEXT NOT NULL
-  );
-`);
+async function einrichten(): Promise<void> {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS geburtstage (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      tag        INTEGER NOT NULL,   -- 1-31
+      monat      INTEGER NOT NULL,   -- 1-12
+      jahr       INTEGER,            -- Geburtsjahr, falls bekannt
+      verstorben INTEGER,            -- Todesjahr; gesetzt = Gedenktag statt Geburtstag
+      notiz      TEXT,
+      created_at TEXT NOT NULL
+    );
+  `);
+}
 
 const now = () => new Date().toISOString();
 
@@ -37,12 +39,15 @@ function tageBis(tag: number, monat: number, heute = new Date()): number {
 
 // --- Router ---------------------------------------------------------------
 
-const router = Router();
+const router = machRouter();
 
-router.get("/", (_req, res) => {
-  const rows = db.prepare("SELECT * FROM geburtstage ORDER BY monat, tag, name").all() as {
-    id: number; name: string; tag: number; monat: number; jahr: number | null; verstorben: number | null;
-  }[];
+/** Eine Zeile der Tabelle, soweit sie hier gebraucht wird. */
+type Zeile = {
+  id: number; name: string; tag: number; monat: number; jahr: number | null; verstorben: number | null;
+};
+
+router.get("/", async (_req, res) => {
+  const rows = await db.alle<Zeile>("SELECT * FROM geburtstage ORDER BY monat, tag, name");
   const heute = new Date();
   res.json(
     rows.map((r) => {
@@ -59,11 +64,9 @@ router.get("/", (_req, res) => {
 });
 
 /** Die naechsten Termine — fuer Kachel und Erinnerung. */
-router.get("/naechste", (req, res) => {
+router.get("/naechste", async (req, res) => {
   const tage = Number(req.query.tage) || 30;
-  const rows = db.prepare("SELECT * FROM geburtstage").all() as {
-    id: number; name: string; tag: number; monat: number; jahr: number | null; verstorben: number | null;
-  }[];
+  const rows = await db.alle<Zeile>("SELECT * FROM geburtstage");
   const heute = new Date();
   const naechste = rows
     .map((r) => ({ ...r, tageBis: tageBis(r.tag, r.monat, heute) }))
@@ -72,7 +75,7 @@ router.get("/naechste", (req, res) => {
   res.json({ anzahl: rows.length, naechste });
 });
 
-router.post("/", (req, res) => {
+router.post("/", async (req, res) => {
   const b = req.body ?? {};
   const name = String(b.name ?? "").trim();
   const tag = Number(b.tag);
@@ -80,13 +83,14 @@ router.post("/", (req, res) => {
   if (!name) return res.status(400).json({ error: "Name fehlt" });
   if (!(tag >= 1 && tag <= 31)) return res.status(400).json({ error: "ungültiger Tag" });
   if (!(monat >= 1 && monat <= 12)) return res.status(400).json({ error: "ungültiger Monat" });
-  const info = db
-    .prepare("INSERT INTO geburtstage (name, tag, monat, jahr, verstorben, notiz, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(name, tag, monat, Number(b.jahr) || null, Number(b.verstorben) || null, b.notiz || null, now());
-  res.json({ id: info.lastInsertRowid });
+  const info = await db.schreibe(
+    "INSERT INTO geburtstage (name, tag, monat, jahr, verstorben, notiz, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    name, tag, monat, Number(b.jahr) || null, Number(b.verstorben) || null, b.notiz || null, now()
+  );
+  res.json({ id: info.id });
 });
 
-router.put("/:id", (req, res) => {
+router.put("/:id", async (req, res) => {
   const b = req.body ?? {};
   const name = String(b.name ?? "").trim();
   const tag = Number(b.tag);
@@ -94,14 +98,15 @@ router.put("/:id", (req, res) => {
   if (!name) return res.status(400).json({ error: "Name fehlt" });
   if (!(tag >= 1 && tag <= 31)) return res.status(400).json({ error: "ungültiger Tag" });
   if (!(monat >= 1 && monat <= 12)) return res.status(400).json({ error: "ungültiger Monat" });
-  db.prepare("UPDATE geburtstage SET name=?, tag=?, monat=?, jahr=?, verstorben=?, notiz=? WHERE id=?").run(
+  await db.schreibe(
+    "UPDATE geburtstage SET name=?, tag=?, monat=?, jahr=?, verstorben=?, notiz=? WHERE id=?",
     name, tag, monat, Number(b.jahr) || null, Number(b.verstorben) || null, b.notiz || null, req.params.id
   );
   res.json({ ok: true });
 });
 
-router.delete("/:id", (req, res) => {
-  db.prepare("DELETE FROM geburtstage WHERE id=?").run(req.params.id);
+router.delete("/:id", async (req, res) => {
+  await db.schreibe("DELETE FROM geburtstage WHERE id=?", req.params.id);
   res.json({ ok: true });
 });
 
@@ -112,10 +117,8 @@ router.delete("/:id", (req, res) => {
  * ein Geburtstag ist ein jaehrlich wiederkehrender Termin. Gedenktage
  * (verstorben) kommen mit, aber ohne Altersangabe und mit †.
  */
-function termine(von: string, bis: string): Termin[] {
-  const rows = db.prepare("SELECT * FROM geburtstage").all() as {
-    id: number; name: string; tag: number; monat: number; jahr: number | null; verstorben: number | null;
-  }[];
+async function termine(von: string, bis: string): Promise<Termin[]> {
+  const rows = await db.alle<Zeile>("SELECT * FROM geburtstage");
   const heute = new Date();
   const ergebnis: Termin[] = [];
   for (const r of rows) {
@@ -139,10 +142,11 @@ function termine(von: string, bis: string): Termin[] {
 }
 
 /** Meldung an die globale Suche: Namen. */
-function suche(begriff: string, grenze: number): Treffer[] {
-  const rows = db
-    .prepare("SELECT id, name, tag, monat, verstorben FROM geburtstage WHERE name LIKE ? ORDER BY name LIMIT ?")
-    .all(`%${begriff}%`, grenze) as { id: number; name: string; tag: number; monat: number; verstorben: number | null }[];
+async function suche(begriff: string, grenze: number): Promise<Treffer[]> {
+  const rows = await db.alle<{ id: number; name: string; tag: number; monat: number; verstorben: number | null }>(
+    "SELECT id, name, tag, monat, verstorben FROM geburtstage WHERE name LIKE ? ORDER BY name LIMIT ?",
+    `%${begriff}%`, grenze
+  );
   return rows.map((r) => ({
     id: `geburtstage:person:${r.id}`,
     titel: r.verstorben ? `${r.name} †` : r.name,
@@ -160,10 +164,10 @@ function suche(begriff: string, grenze: number): Treffer[] {
  * kein Tag, an dem ICH etwas getan habe. Das Raster soll die eigene Spur
  * zeigen, nicht den Kalender fremder Leute.
  */
-function profil(_von: string, _bis: string): ProfilBeitrag {
-  const rows = db.prepare("SELECT name, tag, monat, verstorben FROM geburtstage").all() as {
-    name: string; tag: number; monat: number; verstorben: number | null;
-  }[];
+async function profil(_von: string, _bis: string): Promise<ProfilBeitrag> {
+  const rows = await db.alle<{ name: string; tag: number; monat: number; verstorben: number | null }>(
+    "SELECT name, tag, monat, verstorben FROM geburtstage"
+  );
   if (rows.length === 0) return {};
 
   const heute = new Date();
@@ -194,6 +198,7 @@ export const geburtstageModule: ServerModule = {
   id: "geburtstage",
   title: "Geburtstage",
   router,
+  einrichten,
   termine,
   suche,
   profil,

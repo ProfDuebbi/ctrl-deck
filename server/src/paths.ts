@@ -7,7 +7,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const ROOT_DIR = path.resolve(__dirname, "..", "..");
-export const DATA_DIR = path.join(ROOT_DIR, "data");
+
+/**
+ * Wo die Daten liegen. Vorgabe ist `data/` neben dem Projekt — genau wie
+ * bisher, ein lokaler Start merkt davon nichts.
+ *
+ * `DATA_DIR` gibt es fuer den Serverbetrieb: In einem Container liegt der
+ * dauerhafte Speicher als eingehaengtes Laufwerk irgendwo anders, und ohne
+ * diesen Schalter muesste man dafuer das Projektverzeichnis verbiegen.
+ */
+export const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(ROOT_DIR, "data");
 export const EXPORT_DIR = path.join(DATA_DIR, "exports");
 // Verschluesselte Tresor-Anhaenge. Liegen als Dateien neben der DB und muessen
 // deshalb bei jeder Sicherung mitgenommen werden (siehe db.ts).
