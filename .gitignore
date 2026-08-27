@@ -11,6 +11,12 @@ dist/
 # geschwaerzt unter docs/screenshots/.
 Screensv1/
 
+# Arbeitsanweisung fuer den KI-Assistenten. Gehoert zum Arbeitsplatz, nicht
+# zum Programm: Wer CTRL-DECK herunterlaedt, will es benutzen oder daran
+# bauen, und nicht lesen, wie hier jemand anderes arbeitet. Die Datei bleibt
+# im Ordner liegen, sie geht nur nicht mehr mit.
+CLAUDE.md
+
 # Die Vor-Veroeffentlichungs-Pruefung bleibt privat: ihre Wortliste ist
 # genau das, wonach sie sucht.
 pruefen.mjs
