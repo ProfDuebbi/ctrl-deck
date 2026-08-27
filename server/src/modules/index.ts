@@ -320,6 +320,9 @@ import { haushaltModule } from "./haushalt.js";
 import { geburtstageModule } from "./geburtstage.js";
 import { fahrzeugModule } from "./fahrzeug.js";
 import { tresorModule } from "./tresor.js";
+import { notizenModule } from "./notizen.js";
+import { dokumenteModule } from "./dokumente.js";
+import { changelogModule } from "./changelog.js";
 
 export const serverModules: ServerModule[] = [
   // Steht vorn, weil er die Frage beantwortet, mit der man das Dashboard
@@ -339,4 +342,7 @@ export const serverModules: ServerModule[] = [
   geburtstageModule,
   fahrzeugModule,
   tresorModule,
+  notizenModule,
+  dokumenteModule,
+  changelogModule,
 ];

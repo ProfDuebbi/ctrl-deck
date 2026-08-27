@@ -105,7 +105,10 @@ async function nachAbhaengigkeit(namen: string[]): Promise<string[]> {
  * zugehoerigen Ordner. Gibt den Pfad der JSON-Datei zurueck.
  */
 export async function exportiere(zielJson: string, anhangZiel: string): Promise<string> {
+  const { ANHANG_BESTAENDE } = await import("../paths.js");
+  const anhangTabellen = new Set<string>(ANHANG_BESTAENDE.map((b) => b.tabelle));
   const namen = await nachAbhaengigkeit(await tabellen());
+  const vorhandeneTabellen = new Set(namen);
 
   const stand: Export = {
     v: 1,
@@ -120,7 +123,7 @@ export async function exportiere(zielJson: string, anhangZiel: string): Promise<
     // daneben. Sonst blaehte eine einzige eingescannte Urkunde die JSON-Datei
     // um ein Drittel ihrer Groesse auf (Base64), und man koennte sie nicht mehr
     // aufmachen, um hineinzusehen.
-    const gelesen = spalten.filter((s) => !(name === "tresor_dateien" && s === "inhalt"));
+    const gelesen = spalten.filter((s) => !(anhangTabellen.has(name) && s === "inhalt"));
     const roh = await db.alle(`SELECT ${gelesen.map((s) => `"${s}"`).join(", ")} FROM "${name}"`);
     stand.tabellen.push({
       name,
@@ -136,15 +139,20 @@ export async function exportiere(zielJson: string, anhangZiel: string): Promise<
   fs.writeFileSync(zielJson, JSON.stringify(stand), "utf8");
 
   // Anhaenge daneben — dieselbe Form wie bei der Dateikopie, damit Spiegeln
-  // und Aufraeumen nichts Neues lernen muessen.
-  const anhaenge = await db.alle<{ id: number; inhalt: Uint8Array | null }>(
-    "SELECT id, inhalt FROM tresor_dateien"
-  );
-  const mitInhalt = anhaenge.filter((a) => a.inhalt);
-  if (mitInhalt.length > 0) {
-    fs.mkdirSync(anhangZiel, { recursive: true });
+  // und Aufraeumen nichts Neues lernen muessen. Jeder Bestand in seinen
+  // eigenen Unterordner: die laufenden Nummern zweier Tabellen fangen beide
+  // bei 1 an, flach nebeneinander ueberschriebe eine die andere.
+  for (const bestand of ANHANG_BESTAENDE) {
+    if (!vorhandeneTabellen.has(bestand.tabelle)) continue;
+    const anhaenge = await db.alle<{ id: number; inhalt: Uint8Array | null }>(
+      `SELECT id, inhalt FROM "${bestand.tabelle}"`
+    );
+    const mitInhalt = anhaenge.filter((a) => a.inhalt);
+    if (mitInhalt.length === 0) continue;
+    const ziel = path.join(anhangZiel, bestand.name);
+    fs.mkdirSync(ziel, { recursive: true });
     for (const a of mitInhalt) {
-      fs.writeFileSync(path.join(anhangZiel, `${a.id}.bin`), Buffer.from(a.inhalt!));
+      fs.writeFileSync(path.join(ziel, `${a.id}.bin`), Buffer.from(a.inhalt!));
     }
   }
 
@@ -200,28 +208,34 @@ export async function spieleEin(quelleJson: string, anhangQuelle: string): Promi
  * umgekehrt wieder als Datei auf der Platte. Der Export selbst weiss davon
  * nichts und muss es auch nicht.
  */
-async function spieleAnhaengeEin(anhangQuelle: string): Promise<void> {
-  const { TRESOR_DIR } = await import("../paths.js");
-  const { sicherungMoeglich } = await import("../db.js");
+async function spieleAnhaengeEin(ordner: string): Promise<void> {
+  const { ANHANG_BESTAENDE } = await import("../paths.js");
+  const { sicherungMoeglich, anhangQuelle } = await import("../db.js");
   const alsDatei = sicherungMoeglich();
+  const vorhanden = new Set(await tabellen());
 
-  // Der Anhang-Bestand gehoert zum wiederhergestellten Stand — was hier liegt
-  // und dort nicht vorkommt, hat keinen Eintrag mehr, der darauf zeigt.
-  if (alsDatei) {
-    fs.rmSync(TRESOR_DIR, { recursive: true, force: true });
-    fs.mkdirSync(TRESOR_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(anhangQuelle)) return;
-
-  for (const name of fs.readdirSync(anhangQuelle)) {
-    const treffer = /^(\d+)\.bin$/.exec(name);
-    if (!treffer) continue;
-    const id = Number(treffer[1]);
-    const daten = fs.readFileSync(path.join(anhangQuelle, name));
+  for (const bestand of ANHANG_BESTAENDE) {
+    // Der Anhang-Bestand gehoert zum wiederhergestellten Stand — was hier
+    // liegt und dort nicht vorkommt, hat keinen Eintrag mehr, der darauf zeigt.
     if (alsDatei) {
-      fs.writeFileSync(path.join(TRESOR_DIR, name), daten);
-    } else {
-      await db.schreibe("UPDATE tresor_dateien SET inhalt = ? WHERE id = ?", new Uint8Array(daten), id);
+      fs.rmSync(bestand.dir, { recursive: true, force: true });
+      fs.mkdirSync(bestand.dir, { recursive: true });
+    }
+    const von = anhangQuelle(ordner, bestand.name);
+    if (!von) continue;
+
+    for (const name of fs.readdirSync(von)) {
+      const treffer = /^(\d+)\.bin$/.exec(name);
+      if (!treffer) continue;
+      const daten = fs.readFileSync(path.join(von, name));
+      if (alsDatei) {
+        fs.writeFileSync(path.join(bestand.dir, name), daten);
+      } else if (vorhanden.has(bestand.tabelle)) {
+        await db.schreibe(
+          `UPDATE "${bestand.tabelle}" SET inhalt = ? WHERE id = ?`,
+          new Uint8Array(daten), Number(treffer[1])
+        );
+      }
     }
   }
 }

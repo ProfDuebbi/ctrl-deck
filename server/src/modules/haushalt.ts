@@ -89,6 +89,18 @@ async function einrichten(): Promise<void> {
     betrag   REAL NOT NULL,
     notiz    TEXT
   );
+  -- Die einzelnen Leihen eines Aussenstands. Die Spalte schulden.gesamt ist ab
+  -- hier kein selbst gepflegter Wert mehr, sondern immer die Summe dieser
+  -- Posten — nachgezogen von summeNachziehen(). Die Spalte bleibt trotzdem
+  -- stehen: alle anderen Abfragen (Kachel, Suche, Terminfaden) lesen aus ihr.
+  CREATE TABLE IF NOT EXISTS schulden_posten (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    schuld_id INTEGER NOT NULL,
+    datum     TEXT NOT NULL,
+    betrag    REAL NOT NULL,
+    notiz     TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_schulden_posten ON schulden_posten (schuld_id);
   `);
 
   // Vertragsfelder kamen nachtraeglich dazu — bestehende DBs nachziehen.
@@ -103,6 +115,17 @@ async function einrichten(): Promise<void> {
   ] as const) {
     if (!spalten.has(name)) await db.exec(`ALTER TABLE fixkosten ADD COLUMN ${name} ${def}`);
   }
+
+  // Aussenstaende, die es schon vor der Posten-Tabelle gab, bekommen ihre
+  // bisherige Summe als einen Anfangs-Posten. Ohne das staende ihr Verlauf leer
+  // da und die erste Aufstockung wuerde die alte Summe verschlucken.
+  await db.schreibe(
+    `INSERT INTO schulden_posten (schuld_id, datum, betrag, notiz)
+     SELECT s.id, date(s.created_at), s.gesamt, 'Anfangsbetrag'
+       FROM schulden s
+      WHERE s.gesamt > 0
+        AND NOT EXISTS (SELECT 1 FROM schulden_posten p WHERE p.schuld_id = s.id)`
+  );
 }
 
 const now = () => new Date().toISOString();
@@ -840,36 +863,121 @@ router.get("/schulden", async (_req, res) => {
   res.json(rows.map((r) => ({ ...r, offen: Math.max(0, r.gesamt - r.bezahlt) })));
 });
 
+/**
+ * Zieht `schulden.gesamt` auf die Summe der Posten nach. Immer nach jeder
+ * Aenderung an `schulden_posten` aufrufen — die Spalte ist die Fassung, aus der
+ * Uebersichtskachel, Suche und Terminfaden lesen, und darf nicht davonlaufen.
+ */
+async function summeNachziehen(schuldId: Wert): Promise<void> {
+  await db.schreibe(
+    `UPDATE schulden
+        SET gesamt = COALESCE((SELECT SUM(betrag) FROM schulden_posten WHERE schuld_id = ?), 0)
+      WHERE id = ?`,
+    schuldId, schuldId
+  );
+}
+
 router.post("/schulden", async (req, res) => {
   const b = req.body ?? {};
   const person = String(b.person ?? "").trim();
   if (!person) return res.status(400).json({ error: "Name fehlt" });
   const gesamt = Number(b.gesamt);
   if (!Number.isFinite(gesamt) || gesamt < 0) return res.status(400).json({ error: "ungültiger Betrag" });
-  const info = await db.schreibe(
-    "INSERT INTO schulden (person, gesamt, notiz, created_at) VALUES (?, ?, ?, ?)",
-    person, gesamt, b.notiz || null, now()
-  );
-  res.json({ id: info.id });
+  // Der Anfangsbetrag ist selbst schon ein Posten — sonst faengt der Verlauf
+  // eines frisch angelegten Eintrags mit einer Luecke an.
+  const id = await db.transaktion(async () => {
+    const info = await db.schreibe(
+      "INSERT INTO schulden (person, gesamt, notiz, created_at) VALUES (?, ?, ?, ?)",
+      person, gesamt, b.notiz || null, now()
+    );
+    if (gesamt > 0) {
+      await db.schreibe(
+        "INSERT INTO schulden_posten (schuld_id, datum, betrag, notiz) VALUES (?, ?, ?, ?)",
+        info.id, String(b.datum || heuteLokal()), gesamt, b.notiz || null
+      );
+    }
+    return info.id;
+  });
+  res.json({ id });
 });
 
 router.put("/schulden/:id", async (req, res) => {
   const b = req.body ?? {};
   const person = String(b.person ?? "").trim();
   if (!person) return res.status(400).json({ error: "Name fehlt" });
+  // `gesamt` wird bewusst NICHT uebernommen: die Summe ergibt sich aus den
+  // Posten. Wer sie aendern will, aendert einen Posten.
   await db.schreibe(
-    "UPDATE schulden SET person=?, gesamt=?, notiz=?, erledigt=? WHERE id=?",
-    person, Number(b.gesamt) || 0, b.notiz || null, b.erledigt ? 1 : 0, req.params.id
+    "UPDATE schulden SET person=?, notiz=?, erledigt=? WHERE id=?",
+    person, b.notiz || null, b.erledigt ? 1 : 0, req.params.id
   );
   res.json({ ok: true });
 });
 
 router.delete("/schulden/:id", async (req, res) => {
-  // Aussenstand und seine Rueckzahlungen sind eine Einheit: bliebe der Posten
+  // Aussenstand, Leihen und Rueckzahlungen sind eine Einheit: bliebe der Posten
   // nach einem Fehler stehen, staende er ploetzlich wieder in voller Hoehe da.
   await db.transaktion(async () => {
     await db.schreibe("DELETE FROM schulden_zahlungen WHERE schuld_id=?", req.params.id);
+    await db.schreibe("DELETE FROM schulden_posten WHERE schuld_id=?", req.params.id);
     await db.schreibe("DELETE FROM schulden WHERE id=?", req.params.id);
+  });
+  res.json({ ok: true });
+});
+
+// --- Posten: die einzelnen Leihen -----------------------------------------
+
+router.get("/schulden/:id/posten", async (req, res) => {
+  res.json(
+    await db.alle(
+      "SELECT * FROM schulden_posten WHERE schuld_id=? ORDER BY datum DESC, id DESC", req.params.id
+    )
+  );
+});
+
+router.post("/schulden/:id/posten", async (req, res) => {
+  const b = req.body ?? {};
+  const betrag = Number(b.betrag);
+  if (!Number.isFinite(betrag) || betrag <= 0) return res.status(400).json({ error: "ungültiger Betrag" });
+  const id = await db.transaktion(async () => {
+    const info = await db.schreibe(
+      "INSERT INTO schulden_posten (schuld_id, datum, betrag, notiz) VALUES (?, ?, ?, ?)",
+      req.params.id, b.datum || heuteLokal(), betrag, b.notiz || null
+    );
+    await summeNachziehen(req.params.id);
+    return info.id;
+  });
+  res.json({ id });
+});
+
+router.put("/posten/:id", async (req, res) => {
+  const b = req.body ?? {};
+  const betrag = Number(b.betrag);
+  if (!Number.isFinite(betrag) || betrag <= 0) return res.status(400).json({ error: "ungültiger Betrag" });
+  const treffer = await db.transaktion(async () => {
+    const zeile = await db.eine<{ schuld_id: number }>(
+      "SELECT schuld_id FROM schulden_posten WHERE id=?", req.params.id
+    );
+    if (!zeile) return false;
+    await db.schreibe(
+      "UPDATE schulden_posten SET datum=?, betrag=?, notiz=? WHERE id=?",
+      b.datum || heuteLokal(), betrag, b.notiz || null, req.params.id
+    );
+    await summeNachziehen(zeile.schuld_id);
+    return true;
+  });
+  if (!treffer) return res.status(404).json({ error: "nicht gefunden" });
+  res.json({ ok: true });
+});
+
+router.delete("/posten/:id", async (req, res) => {
+  await db.transaktion(async () => {
+    const zeile = await db.eine<{ schuld_id: number }>(
+      "SELECT schuld_id FROM schulden_posten WHERE id=?", req.params.id
+    );
+    if (!zeile) return;
+    await db.schreibe("DELETE FROM schulden_posten WHERE id=?", req.params.id);
+    await summeNachziehen(zeile.schuld_id);
   });
   res.json({ ok: true });
 });
@@ -891,6 +999,18 @@ router.post("/schulden/:id/zahlungen", async (req, res) => {
     req.params.id, b.datum || heuteLokal(), betrag, b.notiz || null
   );
   res.json({ id: info.id });
+});
+
+router.put("/zahlungen/:id", async (req, res) => {
+  const b = req.body ?? {};
+  const betrag = Number(b.betrag);
+  if (!Number.isFinite(betrag) || betrag <= 0) return res.status(400).json({ error: "ungültiger Betrag" });
+  const info = await db.schreibe(
+    "UPDATE schulden_zahlungen SET datum=?, betrag=?, notiz=? WHERE id=?",
+    b.datum || heuteLokal(), betrag, b.notiz || null, req.params.id
+  );
+  if (!info.zeilen) return res.status(404).json({ error: "nicht gefunden" });
+  res.json({ ok: true });
 });
 
 router.delete("/zahlungen/:id", async (req, res) => {

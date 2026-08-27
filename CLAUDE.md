@@ -100,6 +100,23 @@ Zwei Pflichten im Backend-Modul:
 - Tabellen und Migrationen in **`einrichten()`** anlegen, nicht im Dateirumpf.
   `index.ts` ruft das der Reihe nach auf, bevor der Server lauscht.
 
+## Änderungen gehören in CHANGELOG.md
+
+`CHANGELOG.md` im Projektordner ist nicht nur Dokumentation, sondern **die
+Quelle der Seite „Was ist neu"** in der Oberfläche (`server/src/modules/changelog.ts`
+liest und zerlegt sie). Der Aufbau ist deshalb verbindlich:
+
+```markdown
+## 0.3.0 — 27.08.2026     ← oder „## Unveröffentlicht" ohne Datum
+### Neu | Geändert | Behoben
+- Ein Punkt. Fortsetzungszeilen einrücken, sie gehören zum Punkt darüber.
+```
+
+Erlaubt sind `**fett**` und `` `code` ``; alles andere an Markdown wird
+überlesen. Eine Fassung ohne Punkte fällt aus der Liste. Wer ein Feature baut,
+schreibt die Zeile gleich mit — sie ist das, was der Nutzer davon zu sehen
+bekommt.
+
 ## Tresor
 
 Das Modul `tresor` verschlüsselt im Browser (AES-256-GCM, Schlüssel aus dem

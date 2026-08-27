@@ -9,6 +9,8 @@ import { haushaltModule } from "../modules/haushalt";
 import { geburtstageModule } from "../modules/geburtstage";
 import { fahrzeugModule } from "../modules/fahrzeug";
 import { tresorModule } from "../modules/tresor";
+import { notizenModule } from "../modules/notizen";
+import { dokumenteModule } from "../modules/dokumente";
 
 /**
  * Ein Dashboard-Modul ist eine in sich geschlossene Funktion.
@@ -40,6 +42,8 @@ export const dashboardModules: DashboardModule[] = [
   geburtstageModule,
   fahrzeugModule,
   tresorModule,
+  notizenModule,
+  dokumenteModule,
 ];
 
 // Vorschau auf geplante Module (nur Anzeige auf der Startseite, noch inaktiv).

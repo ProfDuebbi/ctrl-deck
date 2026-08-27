@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DB_PATH, DATA_DIR, TRESOR_DIR } from "./paths.js";
+import { DB_PATH, DATA_DIR, ANHANG_BESTAENDE } from "./paths.js";
 import type { Ergebnis, Treiber, Wert, Zeile } from "./db/schnittstelle.js";
 import { SqliteTreiber } from "./db/sqlite.js";
 import { verbindeLibsql } from "./db/libsql.js";
@@ -154,15 +154,42 @@ function dateiTreiber(): SqliteTreiber {
 
 /**
  * Eine Sicherung besteht aus ZWEI Dingen: der Datenbankdatei und dem Ordner mit
- * den verschluesselten Tresor-Anhaengen. Die Anhaenge liegen bewusst nicht in
- * der DB (Dateien gehoeren nicht in eine SQLite-Spalte), muessen aber zum
- * selben Stand gehoeren — sonst zeigt ein wiederhergestellter Eintrag auf eine
- * Datei, die es nicht mehr gibt. Beide tragen denselben Namensstamm:
+ * den verschluesselten Anhaengen. Die Anhaenge liegen bewusst nicht in der DB
+ * (Dateien gehoeren nicht in eine SQLite-Spalte), muessen aber zum selben Stand
+ * gehoeren — sonst zeigt ein wiederhergestellter Eintrag auf eine Datei, die es
+ * nicht mehr gibt. Beide tragen denselben Namensstamm:
  *
  *   ctrl-deck_2026-07-26T18-57-26.db
  *   ctrl-deck_2026-07-26T18-57-26.dateien/
+ *       tresor/     1.bin  2.bin
+ *       dokumente/  1.bin
  */
 export const anhangOrdner = (pfad: string) => pfad.replace(/\.(db|json)$/, ".dateien");
+
+/** Liegen in diesem Ordner unmittelbar Anhang-Dateien? */
+function hatAnhaenge(dir: string): boolean {
+  try {
+    return fs.readdirSync(dir).some((n) => /^\d+\.bin$/.test(n));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wo in einer Sicherung die Anhaenge EINES Bestandes liegen — oder `null`,
+ * wenn diese Sicherung dazu nichts enthaelt.
+ *
+ * Bis August 2026 gab es nur den Tresor, und seine Anhaenge lagen flach im
+ * Anhang-Ordner. Solche Sicherungen muessen einspielbar bleiben: liegt kein
+ * Unterordner da, aber flache `.bin`-Dateien, dann gehoeren die dem Tresor —
+ * einen zweiten Bestand gab es damals nicht.
+ */
+export function anhangQuelle(ordner: string, name: string): string | null {
+  const unter = path.join(ordner, name);
+  if (fs.existsSync(unter)) return unter;
+  if (name === "tresor" && hatAnhaenge(ordner)) return ordner;
+  return null;
+}
 
 /**
  * Was als Sicherung zaehlt.
@@ -174,15 +201,29 @@ export const anhangOrdner = (pfad: string) => pfad.replace(/\.(db|json)$/, ".dat
  */
 export const istSicherung = (name: string) => name.endsWith(".db") || name.endsWith(".json");
 
-/** Groesse und Anzahl der Dateien in einem Ordner (fehlt er: 0). */
+/**
+ * Groesse und Anzahl der Dateien in einem Ordner (fehlt er: 0).
+ *
+ * Steigt in Unterordner hinab, weil eine Sicherung ihre Anhaenge nach Bestand
+ * getrennt ablegt — zaehlte nur die oberste Ebene, meldete jede neue Sicherung
+ * „0 Dateien" und die Groessenangabe waere die der Datenbank allein.
+ */
 function ordnerInhalt(dir: string): { anzahl: number; groesse: number } {
   if (!fs.existsSync(dir)) return { anzahl: 0, groesse: 0 };
-  const dateien = fs.readdirSync(dir);
+  let anzahl = 0;
   let groesse = 0;
-  for (const f of dateien) {
-    try { groesse += fs.statSync(path.join(dir, f)).size; } catch { /* weg ist weg */ }
+  for (const eintrag of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, eintrag.name);
+    if (eintrag.isDirectory()) {
+      const tiefer = ordnerInhalt(p);
+      anzahl += tiefer.anzahl;
+      groesse += tiefer.groesse;
+      continue;
+    }
+    anzahl++;
+    try { groesse += fs.statSync(p).size; } catch { /* weg ist weg */ }
   }
-  return { anzahl: dateien.length, groesse };
+  return { anzahl, groesse };
 }
 
 /**
@@ -202,8 +243,12 @@ export async function createBackup(prefix = "ctrl-deck"): Promise<string> {
   await t.checkpoint();
   const target = path.join(BACKUP_DIR, `${prefix}_${stamp()}.db`);
   fs.copyFileSync(t.datei, target);
-  if (ordnerInhalt(TRESOR_DIR).anzahl > 0)
-    fs.cpSync(TRESOR_DIR, anhangOrdner(target), { recursive: true });
+  // Jeder Bestand in seinen eigenen Unterordner — sonst kollidierten die
+  // laufenden Nummern zweier Tabellen (beide fangen bei 1.bin an).
+  for (const bestand of ANHANG_BESTAENDE) {
+    if (ordnerInhalt(bestand.dir).anzahl === 0) continue;
+    fs.cpSync(bestand.dir, path.join(anhangOrdner(target), bestand.name), { recursive: true });
+  }
   return target;
 }
 
@@ -282,9 +327,12 @@ export async function restoreDatabase(backupPath: string): Promise<string> {
   // keinen Eintrag mehr, der auf sie zeigt. Verloren geht dabei nichts — die
   // Sicherheitskopie von eben enthaelt sie.
   const quelle = anhangOrdner(backupPath);
-  fs.rmSync(TRESOR_DIR, { recursive: true, force: true });
-  fs.mkdirSync(TRESOR_DIR, { recursive: true });
-  if (fs.existsSync(quelle)) fs.cpSync(quelle, TRESOR_DIR, { recursive: true });
+  for (const bestand of ANHANG_BESTAENDE) {
+    fs.rmSync(bestand.dir, { recursive: true, force: true });
+    fs.mkdirSync(bestand.dir, { recursive: true });
+    const von = anhangQuelle(quelle, bestand.name);
+    if (von) fs.cpSync(von, bestand.dir, { recursive: true });
+  }
 
   await t.auf();
   return safety;

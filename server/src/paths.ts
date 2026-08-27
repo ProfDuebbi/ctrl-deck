@@ -23,6 +23,9 @@ export const EXPORT_DIR = path.join(DATA_DIR, "exports");
 // Verschluesselte Tresor-Anhaenge. Liegen als Dateien neben der DB und muessen
 // deshalb bei jeder Sicherung mitgenommen werden (siehe db.ts).
 export const TRESOR_DIR = path.join(DATA_DIR, "tresor");
+// Verschluesselte Dokumente (Scans, PDFs). Zweiter Bestand derselben Art wie
+// die Tresor-Anhaenge — deshalb steht beides unten in ANHANG_BESTAENDE.
+export const DOKUMENTE_DIR = path.join(DATA_DIR, "dokumente");
 export const DB_PATH = path.join(DATA_DIR, "ctrl-deck.db");
 // Optionales Zertifikat fuer HTTPS. Liegt hier `cert.pem` + `key.pem`, liefert
 // der Server verschluesselt aus; sonst laeuft er auf http (siehe index.ts).
@@ -32,7 +35,25 @@ export const TLS_DIR = path.join(DATA_DIR, "tls");
 // Betrieb weder Vite noch CORS.
 export const WEB_DIST = path.join(ROOT_DIR, "web", "dist");
 
+/**
+ * Jeder Ordner, in dem verschluesselte Anhaenge als Dateien liegen, mit der
+ * Tabelle, die auf sie zeigt.
+ *
+ * Diese Paarung steht hier EINMAL, weil sie an drei Stellen gebraucht wird:
+ * beim Sichern, beim Zurueckspielen und beim Umzug in eine angeschlossene
+ * Datenbank (`db/export.ts`, wo der Inhalt dann in einer Spalte landet). Solange
+ * es nur den Tresor gab, war die Verdrahtung an jeder dieser Stellen fest
+ * eingebaut — beim zweiten Bestand faellt auf, dass das dreimal dasselbe war.
+ *
+ * `name` ist der Unterordner, unter dem eine Sicherung diesen Bestand ablegt.
+ * Er darf sich NICHT mehr aendern: Sicherungen tragen ihn im Dateipfad.
+ */
+export const ANHANG_BESTAENDE = [
+  { name: "tresor", dir: TRESOR_DIR, tabelle: "tresor_dateien" },
+  { name: "dokumente", dir: DOKUMENTE_DIR, tabelle: "dokument_dateien" },
+] as const;
+
 // Sicherstellen, dass die Datenordner existieren
-for (const dir of [DATA_DIR, EXPORT_DIR, TRESOR_DIR, TLS_DIR]) {
+for (const dir of [DATA_DIR, EXPORT_DIR, TRESOR_DIR, DOKUMENTE_DIR, TLS_DIR]) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }

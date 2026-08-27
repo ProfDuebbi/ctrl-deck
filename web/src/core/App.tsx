@@ -11,6 +11,7 @@ import { Suche } from "./Suche";
 import { DiagrammAnsicht } from "./DiagrammAnsicht";
 import { Profil } from "./Profil";
 import { Einstellungen } from "./Einstellungen";
+import { Changelog, useChangelogNeu } from "./Changelog";
 import { Uhr, datumsZeile } from "./Uhr";
 import { useKopf } from "./kopf";
 import { ProfilKnopf } from "./ProfilKnopf";
@@ -77,6 +78,9 @@ export function App() {
   // ueber die Profilseite dorthin. Deshalb ein eigener Zustand statt eines
   // Reiters — zurueck fuehrt immer aufs Profil.
   const [showEinstellungen, setShowEinstellungen] = useState(false);
+  // „Was ist neu" liegt wie das Profil neben den Modulen, nicht darunter:
+  // Es ist eine Auskunft ueber das PROGRAMM, keine Funktion des Dashboards.
+  const [showChangelog, setShowChangelog] = useState(false);
   const [showBackups, setShowBackups] = useState(false);
   const [showModule, setShowModule] = useState(false);
   const [showSuche, setShowSuche] = useState(false);
@@ -104,6 +108,12 @@ export function App() {
   // Aussehen des Kopfbereichs. Liegt in einem geteilten Speicher, damit das
   // Profil beim Verstellen sofort hier ankommt — ohne Zustand durchzureichen.
   const kopf = useKopf();
+  // Wie viele Fassungen seit dem letzten Besuch dazugekommen sind. Wird beim
+  // Start EINMAL geholt; nach dem Lesen zeigt `gelesen` den Punkt sofort weg,
+  // ohne dafuer noch einmal zu fragen.
+  const neueFassungen = useChangelogNeu();
+  const [gelesen, setGelesen] = useState(false);
+  const neuImChangelog = gelesen ? 0 : neueFassungen;
 
   useEffect(() => {
     localStorage.setItem("cd_sidebar_collapsed", collapsed ? "1" : "0");
@@ -119,7 +129,12 @@ export function App() {
    * aus, als sei die App haengengeblieben.
    */
   const gehZu = (id: string | null) =>
-    mitUebergang(() => { setShowProfil(false); setShowEinstellungen(false); setActiveId(id); });
+    mitUebergang(() => {
+      setShowProfil(false);
+      setShowEinstellungen(false);
+      setShowChangelog(false);
+      setActiveId(id);
+    });
 
   /**
    * Strg+K oeffnet die Suche — von ueberall, auch mitten in einem Modul.
@@ -258,6 +273,23 @@ export function App() {
           <button className="backup-btn" onClick={() => setShowBackups(true)} title="Backups sichern & wiederherstellen">
             <span className="nav-ico"><Icon name="backup" /></span> <span className="nav-label">Backups</span>
           </button>
+          <button
+            className={`backup-btn ${showChangelog ? "active" : ""}`}
+            onClick={() => mitUebergang(() => {
+              setShowProfil(false); setShowEinstellungen(false); setActiveId(null); setShowChangelog(true);
+            })}
+            title="Was sich in CTRL·DECK geändert hat"
+            aria-current={showChangelog ? "page" : undefined}
+          >
+            <span className="nav-ico"><Icon name="glocke" /></span>{" "}
+            <span className="nav-label">Was ist neu</span>
+            {neuImChangelog > 0 && (
+              <span className="nav-badge" title={`${neuImChangelog} neue Einträge`}>
+                {neuImChangelog}
+                <span className="sr-only"> neue Einträge</span>
+              </span>
+            )}
+          </button>
           <button className="backup-btn" onClick={abmelden} title="Abmelden — beim nächsten Mal wieder mit Passwort">
             <span className="nav-ico"><Icon name="schloss" /></span> <span className="nav-label">Abmelden</span>
           </button>
@@ -273,7 +305,26 @@ export function App() {
       </aside>
 
       <main className="main" id="inhalt">
-        {showEinstellungen ? (
+        {showChangelog ? (
+          <>
+            <header className="hero module-hero">
+              <div>
+                <button className="back-link" onClick={() => gehZu(null)}>
+                  <Icon name="pfeil-links" /> Übersicht
+                </button>
+                <div className="hero-titel">
+                  <h1 className="module-h1">
+                    <span className="module-h1-ico"><Icon name="glocke" /></span>{" "}
+                    Was ist neu
+                  </h1>
+                </div>
+                <p className="subtitle">Was sich in CTRL·DECK geändert hat — neueste Fassung zuerst.</p>
+              </div>
+              <Uhr jetzt={now} />
+            </header>
+            <Changelog onGelesen={() => setGelesen(true)} />
+          </>
+        ) : showEinstellungen ? (
           <>
             <header className="hero module-hero">
               <div>

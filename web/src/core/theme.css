@@ -212,6 +212,9 @@ body {
   gap: 24px;
   padding: 20px 14px;
   height: 100vh;
+  /* siehe .main — ohne `relative` entkommen absolut positionierte Nachkommen
+     diesem Scroller und blaehen das Dokument auf. */
+  position: relative;
   overflow-y: auto;
   overflow-x: hidden;
   background: var(--surface);
@@ -455,6 +458,20 @@ button.nav-item:hover:not(.active) { background: var(--surface-2); color: var(--
 
 /* ---- Hauptbereich --------------------------------------------------- */
 
+/*
+ * Der Hauptbereich ist der EINZIGE Scroller der App — `.app` clippt, die
+ * Sidebar scrollt getrennt, das Dokument selbst scrollt gar nicht.
+ *
+ * `position: relative` ist dafuer keine Kosmetik, sondern die Bedingung:
+ * Ein Scroller clippt absolut positionierte Nachkommen nur, wenn er ihr
+ * enthaltender Block ist — also selbst positioniert ist. Solange `.main`
+ * `static` war, „entkamen" ihm die `.sr-only`-Spans in den Kacheln (die
+ * „öffnen"-Zusaetze fuer Screenreader, `position: absolute`), haengten sich
+ * ans Wurzelelement und zogen das Dokument auf ihre Hoehe. Sichtbar wurde das
+ * erst, als die Kachelwand ueber eine Bildschirmhoehe hinauswuchs: Dann lag
+ * der unterste dieser 1×1-Pixel-Spans unterhalb des Viewports — und der
+ * Browser zeigte eine ZWEITE Scrollbar fuer 86 Pixel, in denen nichts stand.
+ */
 .main {
   padding: 30px 38px 24px;
   display: flex;
@@ -462,6 +479,7 @@ button.nav-item:hover:not(.active) { background: var(--surface-2); color: var(--
   gap: 30px;
   min-width: 0;
   height: 100vh;
+  position: relative;
   overflow-y: auto;
 }
 
@@ -888,6 +906,7 @@ button.nav-item:hover:not(.active) { background: var(--surface-2); color: var(--
 .entry-form input,
 .entry-form select,
 .filter-bar input,
+.suchfeld input,
 .report-range input,
 .meter-modal-fields input,
 .proj-add input,
@@ -911,12 +930,14 @@ button.nav-item:hover:not(.active) { background: var(--surface-2); color: var(--
 .entry-form input.wide { flex: 1; min-width: 200px; }
 .entry-form input { min-width: 120px; }
 .entry-form input::placeholder, .filter-bar input::placeholder,
+.suchfeld input::placeholder,
 .extern-pfad::placeholder { color: var(--text-faint); }
 
 /* Fokus: farbige Kante PLUS Ring — die Kante allein ist nur ein Farbsignal. */
 .entry-form input:focus-visible,
 .entry-form select:focus-visible,
 .filter-bar input:focus-visible,
+.suchfeld input:focus-visible,
 .report-range input:focus-visible,
 .meter-modal-fields input:focus-visible,
 .proj-add input:focus-visible,
@@ -1904,6 +1925,14 @@ button.chip:hover { background: color-mix(in srgb, var(--pf, var(--blue)) 24%, t
 /* Das Lupensymbol lag frueher als Emoji IM placeholder-Text — es verschwand
    also, sobald man tippte, und wurde vom Screenreader mitgelesen. Jetzt liegt
    es als Symbol im Feld. */
+/*
+ * Das Suchfeld steht im Laermprotokoll INNERHALB einer `.filter-bar` und bekam
+ * sein Feldbild frueher nur von dort. Wo es allein steht (Notizen, Dokumente),
+ * fiel es deshalb durch jede Regel hindurch und sah aus wie ein fremdes
+ * Element: flach, ohne Grund, ohne Kante. `.suchfeld input` steht jetzt oben im
+ * gemeinsamen Feldbild — hier bleibt nur, was das Suchfeld von anderen Feldern
+ * unterscheidet: Platz links fuer die Lupe.
+ */
 .suchfeld { position: relative; flex: 1; min-width: 220px; display: flex; }
 .suchfeld input { width: 100%; padding-left: 32px; }
 .suchfeld .ikon {
@@ -2057,6 +2086,16 @@ td.hh-plus { color: var(--green-soft); font-variant-numeric: tabular-nums; }
 .zahl-datum { color: var(--text-dim); }
 .zahl-betrag { font-weight: 550; }
 .zahl-notiz { color: var(--text-faint); font-size: 12.5px; }
+/* Vorzeichen und Farbe sagen dasselbe: + kam dazu, - kam zurueck. */
+.zahl-betrag.leihe { color: var(--red-soft); }
+.zahl-betrag.rueck { color: var(--green-soft); }
+/* Eine Zeile in Bearbeitung sprengt das Vier-Spalten-Raster und traegt
+   stattdessen ihr eigenes Formular ueber die ganze Breite. */
+.zahl-liste li.zahl-edit { display: block; padding: 9px; background: var(--surface-2); }
+.zahl-liste li.zahl-edit .entry-form { padding: 0; background: none; border: none; }
+.zahl-art { font-size: 12.5px; color: var(--text-dim); align-self: center; }
+/* Der Kopf einer Karte wird beim Bearbeiten selbst zum Formular. */
+.schuld-karte .schuld-edit { width: 100%; padding: 0; background: none; border: none; }
 
 /* ---- Geburtstage ----------------------------------------------------- */
 
@@ -3070,4 +3109,659 @@ rect.dg-saeule { fill: var(--dg); }
 @media (max-width: 900px) {
   .ansicht-wahl .seg-btn { gap: 0; font-size: 0; }
   .ansicht-wahl .seg-btn .ikon { font-size: 16px; }
+}
+
+/* ======================================================================
+   NOTIZEN — links die Ablage, rechts das Blatt
+   ----------------------------------------------------------------------
+   Die einzige Ansicht mit echtem Fliesstext. Deshalb hier zwei Dinge, die
+   es sonst nirgends gibt: eine Textspalte mit begrenzter Zeilenlaenge (ab
+   etwa 80 Zeichen verliert das Auge die Zeile) und eine Schrift mit fester
+   Zeichenbreite im Schreibfeld — Markdown ist Quelltext, und Einrueckungen
+   muessen untereinander stehen.
+   ====================================================================== */
+
+.nz-raster {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 16px;
+  /* Feste Hoehe statt „waechst mit": Beide Spalten sollen ihren eigenen
+     Rollbalken haben. Sonst rollt die ganze Seite, und die Liste ist beim
+     Schreiben am Ende einer langen Notiz nicht mehr zu sehen. */
+  height: clamp(420px, calc(100vh - 250px), 900px);
+  min-height: 0;
+}
+
+/* ---- Die Ablage ------------------------------------------------------ */
+
+.nz-spalte {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  min-width: 0;
+}
+.nz-spalte-kopf { display: flex; align-items: center; gap: 8px; }
+.nz-spalte-kopf .btn { flex: 1; justify-content: center; }
+/* `.suchfeld` bringt `flex: 1` mit — in einer Zeile richtig, in dieser
+   Spalte wuerde das Feld die halbe Hoehe fuellen. */
+.nz-suchfeld { flex: none; min-width: 0; }
+
+.nz-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 78px;
+  overflow-y: auto;
+}
+.nz-tag {
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: var(--r-xs);
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text-dim);
+  transition: color var(--t) linear, border-color var(--t) linear, background var(--t) linear;
+}
+.nz-tag:hover { color: var(--text); border-color: var(--line-strong); }
+.nz-tag.an { color: var(--blue); border-color: rgba(58, 160, 255, 0.5); background: rgba(58, 160, 255, 0.12); }
+.nz-tag-zahl { color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.nz-tag.an .nz-tag-zahl { color: inherit; opacity: 0.7; }
+
+.nz-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.nz-liste .empty { padding: 22px 14px; }
+
+.nz-zeile {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 2px 6px 2px 0;
+  border-bottom: 1px solid var(--line);
+}
+.nz-zeile:last-child { border-bottom: none; }
+/* Die gewaehlte Notiz traegt links eine blaue Kante — Blau heisst „aktiv"
+   (Regel 3). Der Streifen liegt im Rand und schiebt den Text nicht. */
+.nz-zeile.an { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--blue); }
+
+.nz-zeile-text {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 4px 9px 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+}
+.nz-zeile-text:disabled { cursor: default; }
+.nz-zeile-titel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nz-zeile.fest .nz-zeile-titel { font-weight: 550; }
+.nz-zeile-titel .ikon { font-size: 13px; color: var(--text-faint); flex: none; }
+.nz-zeile-auszug {
+  font-size: 12px;
+  color: var(--text-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nz-zeile-fuss {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+.nz-zeile-fuss .ikon { font-size: 12px; }
+.nz-zeile-tag {
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+}
+.nz-zeile-knoepfe { display: flex; align-items: center; padding-top: 8px; }
+.nz-zeile-knoepfe .icon-btn { margin-left: 0; }
+.icon-btn.an { color: var(--blue); border-color: rgba(58, 160, 255, 0.45); }
+
+.nz-leeren { align-self: flex-start; }
+.nz-fussnote { margin: 0; font-size: 11px; color: var(--text-faint); }
+
+/* ---- Das Blatt ------------------------------------------------------- */
+
+.nz-blatt {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.nz-blatt-kopf { display: flex; align-items: center; gap: 10px; }
+.nz-titel {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 19px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 2px 0;
+}
+.nz-titel:focus-visible { outline: none; box-shadow: 0 1px 0 var(--blue); }
+.nz-werkzeuge { display: flex; align-items: center; flex: none; }
+
+.nz-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.nz-meta .feld-mit-label input { font-size: 12.5px; padding: 4px 8px; }
+
+/* ---- Lesen: Titel und Schild ----------------------------------------- */
+
+.nz-titel-fest {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.nz-titel-fest .ikon { font-size: 16px; color: var(--text-faint); flex: none; }
+.nz-werkzeuge .btn + .icon-btn { margin-left: 8px; }
+
+/* Was ueber der Notiz steht, ohne im Text zu stehen: Schlagworte,
+   Wiedervorlage, Schloss, Zeitangabe. */
+.nz-schild {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.nz-schild:empty { display: none; }
+.nz-schild-teil { display: inline-flex; align-items: center; gap: 5px; }
+.nz-schild-teil.rechts { margin-left: auto; }
+
+/* ---- Schreiben: Werkzeugleiste und Feld ------------------------------- */
+
+.nz-leiste {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.nz-leiste-strich { width: 1px; height: 18px; background: var(--line); margin: 0 5px; }
+
+.nz-knopf {
+  font: inherit;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  font-size: 15px;
+  line-height: 1;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text-dim);
+  transition: color var(--t) linear, background var(--t) linear, border-color var(--t) linear;
+}
+.nz-knopf:hover { color: var(--text); background: var(--surface-3); }
+/* Blau heisst „aktiv" (Regel 3) — hier: die Schreibmarke steht mittendrin. */
+.nz-knopf.an {
+  color: var(--blue);
+  background: rgba(58, 160, 255, 0.14);
+  border-color: rgba(58, 160, 255, 0.4);
+}
+/* Fett, Kursiv und Durchgestrichen zeigen sich an sich selbst. */
+.nz-knopf.zeichen { width: 26px; font-size: 13.5px; }
+.nz-knopf.fett { font-weight: 700; }
+.nz-knopf.kursiv { font-family: Georgia, "Times New Roman", serif; font-style: italic; }
+.nz-knopf.durch { text-decoration: line-through; }
+.nz-knopf.ue1, .nz-knopf.ue2 { width: auto; padding: 0 7px; font-size: 12px; font-weight: 550; }
+
+/* Das Schreibfeld traegt dieselbe Typografie wie die Ansicht — das ist der
+   ganze Punkt: was hier steht, sieht aus wie das Ergebnis. */
+/* Zwei Klassennamen, damit die Regel `.nz-md` schlaegt: die stehen beide in
+   dieser Datei, und der spaetere Block gewaenne sonst allein durch Reihenfolge
+   (die 68-Zeichen-Grenze der Ansicht gilt hier nicht — das Feld soll zeigen,
+   wo es endet). */
+.nz-md.nz-editor {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  max-width: none;
+  padding: 12px 14px;
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.nz-md.nz-editor:focus-visible { outline: none; border-color: var(--blue); }
+/* Hier — und nur hier — laesst sich ein Kaestchen anklicken. */
+.nz-md.nz-editor .nz-haken input { pointer-events: auto; cursor: pointer; }
+/* Beim Lesen haengt der Durchstrich am <span> um den Text; im Editor gibt es
+   den nicht (dort ist es ein nackter Textknoten). Damit ein Haken in beiden
+   Ansichten dasselbe bedeutet, steht er hier am Punkt selbst. */
+.nz-md.nz-editor .nz-haken.an { color: var(--text-faint); text-decoration: line-through; }
+
+/* Der Tresor hat sich mitten im Schreiben gesperrt. Bernstein heisst
+   „Achtung", nicht „Fehler": der Text ist ja noch da. */
+.nz-warnung {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 181, 69, 0.45);
+  border-radius: var(--r-sm);
+  background: rgba(255, 181, 69, 0.1);
+  font-size: 12.5px;
+  color: var(--amber);
+}
+.nz-warnung p { margin: 0; display: flex; align-items: center; gap: 6px; }
+.nz-warnung .schloss-klein { flex-direction: row; margin: 0 0 0 auto; max-width: none; gap: 8px; }
+.nz-warnung .schloss-klein-ico, .nz-warnung .schloss-klein-text { display: none; }
+.nz-warnung .schloss-klein input { width: 180px; text-align: left; }
+
+.nz-fuss-knoepfe { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+.nz-fuss {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+/* Der Speicherstand ist reines Zustandsfeedback: ein Farbwechsel, keine
+   Bewegung (Regel 5). */
+.nz-stand { transition: color var(--t) linear; }
+.nz-stand.geaendert, .nz-stand.speichert { color: var(--amber); }
+.nz-stand.fehler { color: var(--red-soft); }
+.nz-fuss-hinweis, .nz-fuss-fehler { display: inline-flex; align-items: center; gap: 5px; }
+.nz-fuss-fehler { color: var(--red-soft); }
+
+/* ---- Leeres Blatt und Schloss ---------------------------------------- */
+
+.nz-leerblatt, .schloss-klein {
+  margin: auto;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.nz-leerblatt > .ikon, .schloss-klein-ico { font-size: 34px; color: var(--line-strong); }
+.nz-leerblatt p, .schloss-klein-text { margin: 0; }
+.nz-leerblatt-klein { font-size: 12px; color: var(--text-faint); }
+.nz-leerblatt code {
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+}
+.schloss-klein input { width: 100%; text-align: center; }
+.schloss-klein-fehler { margin: 0; display: inline-flex; align-items: center; gap: 6px; color: var(--red-soft); }
+
+/* ---- Gesetzter Text (Vorschau) --------------------------------------- */
+
+.nz-md {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Zeilenlaenge begrenzen, nicht die Spalte: Lesbarkeit haengt an der
+     Zeile, nicht am Fenster. */
+  max-width: 68ch;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.nz-md > :first-child { margin-top: 0; }
+.nz-md h2, .nz-md h3, .nz-md h4, .nz-md h5, .nz-md h6 {
+  margin: 1.4em 0 0.5em;
+  line-height: 1.3;
+  color: var(--text);
+}
+.nz-md h2 { font-size: 18px; }
+.nz-md h3 { font-size: 15.5px; }
+.nz-md h4, .nz-md h5, .nz-md h6 { font-size: 14px; color: var(--text-dim); }
+.nz-md p { margin: 0 0 0.9em; }
+.nz-md ul, .nz-md ol { margin: 0 0 0.9em; padding-left: 1.4em; }
+.nz-md li { margin-bottom: 0.25em; }
+.nz-md li::marker { color: var(--text-faint); }
+.nz-md a { color: var(--blue); text-decoration: underline; text-underline-offset: 2px; }
+.nz-md code {
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.88em;
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+}
+.nz-md pre {
+  margin: 0 0 0.9em;
+  padding: 12px 14px;
+  overflow-x: auto;
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.nz-md pre code { padding: 0; border: none; background: none; font-size: 12.5px; }
+.nz-md blockquote {
+  margin: 0 0 0.9em;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-dim);
+}
+.nz-md blockquote p:last-child { margin-bottom: 0; }
+.nz-md hr { border: none; border-top: 1px solid var(--line); margin: 1.4em 0; }
+.nz-md .nz-haken { list-style: none; display: flex; align-items: baseline; gap: 8px; margin-left: -1.4em; }
+.nz-md .nz-haken input { margin: 0; pointer-events: none; }
+.nz-md .nz-haken.an > span { color: var(--text-faint); text-decoration: line-through; }
+
+/* Auf schmalen Fenstern steht die Ablage ueber dem Blatt. */
+@media (max-width: 860px) {
+  .nz-raster { grid-template-columns: 1fr; height: auto; }
+  .nz-liste { max-height: 300px; }
+  .nz-blatt { min-height: 460px; }
+}
+
+/* ---- Dokumentenablage ------------------------------------------------ */
+
+.dk-leiste { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+/* Das Suchfeld hat rechts einen Leeren-Knopf — der braucht Platz und darf
+   nicht auf der Schrift liegen. */
+.dk-suche input { padding-right: 36px; }
+.dk-suche .icon-btn {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  border: none; background: none;
+}
+.btn.ghost.an { color: var(--text); border-color: var(--line-strong); background: var(--surface-2); }
+
+.dk-warnung {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-bottom: 14px; font-size: 13px; color: var(--text-dim);
+}
+.dk-warnung > span { display: inline-flex; align-items: center; gap: 8px; }
+/* Das Schloss steht hier in EINER Zeile statt als Kachel — es ist ein Hinweis
+   am Rand, keine Aufforderung, die die halbe Seite fuellt. */
+.dk-warnung .schloss-klein {
+  flex-direction: row; align-items: center; margin: 0 0 0 auto;
+  max-width: none; gap: 8px; padding: 0; border: none; background: none;
+}
+.dk-warnung .schloss-klein-ico, .dk-warnung .schloss-klein-text { display: none; }
+.dk-warnung .schloss-klein input { width: 180px; text-align: left; }
+
+/* Faecher links, Ablage rechts. Unter 900px wandern die Faecher nach oben. */
+.dk-raster { display: grid; grid-template-columns: 210px 1fr; gap: 16px; align-items: start; }
+
+.dk-faecher {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r);
+  position: sticky; top: 12px;
+}
+.dk-faecher button {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+  padding: 7px 9px; border: none; border-radius: var(--r-sm);
+  background: transparent; color: var(--text-dim);
+  transition: background var(--t) linear, color var(--t) linear;
+}
+.dk-faecher button:hover { color: var(--text); background: var(--surface-2); }
+.dk-faecher button.an { color: var(--text); background: var(--surface-2); font-weight: 550; }
+.dk-faecher em { font-style: normal; font-size: 12px; color: var(--text-faint); }
+.dk-faecher .empty { margin: 6px 9px; font-size: 12.5px; }
+
+.dk-liste { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.dk-karte { padding: 0; overflow: hidden; }
+
+.dk-kopf {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; cursor: pointer;
+  transition: background var(--t) linear;
+}
+.dk-kopf:hover { background: var(--surface-2); }
+.dk-kopf:focus-visible { outline: none; box-shadow: var(--focus); }
+.dk-karte.auf .dk-kopf { background: var(--surface-2); }
+.dk-titel { font-weight: 550; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dk-zu { font-style: normal; display: inline-flex; align-items: center; gap: 6px; color: var(--text-faint); }
+
+.dk-marken { display: flex; align-items: center; gap: 10px; margin-left: auto; flex-shrink: 0; }
+.dk-fach {
+  font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-dim); padding: 3px 8px;
+  background: var(--bg-sunk); border: 1px solid var(--line); border-radius: var(--r-sm);
+}
+.dk-schloss, .dk-dateizahl {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12.5px; color: var(--text-faint);
+}
+/* Farbe bedeutet hier etwas (Regel 3): abgelaufen ist ein Zustand, kein Schmuck. */
+.dk-ablauf { font-size: 12.5px; color: var(--text-faint); white-space: nowrap; }
+.dk-ablauf.bald { color: var(--amber); }
+.dk-ablauf.abgelaufen { color: var(--red-soft); }
+
+.dk-detail { padding: 0 14px 14px; border-top: 1px solid var(--line); }
+.dk-daten {
+  display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px;
+  margin: 12px 0 0; font-size: 13px;
+}
+.dk-daten dt { color: var(--text-faint); }
+.dk-daten dd { margin: 0; color: var(--text); }
+.dk-daten dd em { font-style: normal; color: var(--text-faint); font-size: 12.5px; }
+.dk-notiz { margin: 12px 0 0; font-size: 13px; color: var(--text-dim); white-space: pre-wrap; }
+
+.dk-worte { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.dk-wort {
+  font: inherit; font-size: 12px; cursor: pointer;
+  padding: 3px 8px; border-radius: var(--r-sm);
+  background: var(--bg-sunk); border: 1px solid var(--line); color: var(--text-dim);
+  transition: color var(--t) linear, border-color var(--t) linear;
+}
+.dk-wort:hover { color: var(--text); border-color: var(--line-strong); }
+
+.dk-dateien { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; }
+.dk-dateien li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 9px; font-size: 13px;
+  border-bottom: 1px solid var(--line);
+}
+.dk-dateien li:last-child { border-bottom: none; }
+.dk-dateien li > .ikon { color: var(--text-faint); flex-shrink: 0; }
+.dk-dateiname {
+  font: inherit; font-size: 13px; cursor: pointer; text-align: left;
+  padding: 0; border: none; background: none; color: var(--blue-soft);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dk-dateiname:hover { text-decoration: underline; }
+.dk-dateigroesse { margin-left: auto; color: var(--text-faint); font-size: 12.5px; white-space: nowrap; }
+
+/* Ein Dateifeld sieht in jedem Browser anders aus — deshalb steckt es
+   unsichtbar in einem Label, das wie ein Knopf aussieht. */
+.dk-anhaengen { display: inline-flex; margin-top: 12px; }
+.dk-anhaengen input[type="file"], .dk-ablegen input[type="file"] { display: none; }
+.dk-ablegen { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+
+/* Waehrend etwas laeuft (Ablegen, Umschluesseln) eine Zeile statt eines
+   Toasts: Das hier dauert laenger als eine Einblendung, und man will
+   nachlesen koennen, wo der Stapel gerade steht. */
+.dk-laeuft {
+  margin-bottom: 12px; padding: 9px 12px; font-size: 13px; color: var(--text-dim);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+}
+
+/* Ziehziel. Die Kante wechselt die Farbe — mehr braucht es nicht, um „hier
+   kann es hin" zu sagen (theme.css, Regel 3 und 5). */
+.dk-liste.ziel, .dk-faecher button.ziel {
+  outline: 1px dashed var(--blue); outline-offset: -1px; border-radius: var(--r-sm);
+}
+.dk-faecher button.ziel { color: var(--text); background: var(--surface-2); }
+.dk-liste.ziel { min-height: 120px; }
+.dk-zielhinweis {
+  margin: 0; padding: 10px 12px; font-size: 13px; color: var(--blue-soft);
+  text-align: center;
+}
+
+.dk-formular textarea {
+  font: inherit; font-size: 13.5px; resize: vertical;
+  padding: 8px 10px; border-radius: var(--r-sm);
+  background: var(--bg-sunk); border: 1px solid var(--line); color: var(--text);
+}
+.dk-formular textarea:focus-visible { outline: none; border-color: var(--line-strong); box-shadow: var(--focus); }
+.dk-zeile { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* Der Verschluesseln-Schalter ist kein Feld mit Beschriftung, sondern eine
+   Entscheidung: Kaestchen links, Text daneben, in normaler Schrift. Ohne das
+   erbt er von `.meter-modal-fields label` Grossbuchstaben und Sperrsatz — und
+   sieht dann aus wie die Ueberschrift eines Feldes, das gar nicht kommt. */
+.dk-formular .kopf-schalter {
+  flex-direction: row; gap: 10px; align-items: flex-start;
+  font-size: 13.5px; color: var(--text);
+  text-transform: none; letter-spacing: 0;
+  padding-top: 4px; border-top: 1px solid var(--line);
+}
+.dk-formular .kopf-schalter em { max-width: 62ch; line-height: 1.5; }
+
+/* ---- Der Betrachter -------------------------------------------------- */
+
+.dk-vorschau-huelle {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(6, 8, 11, 0.78);
+}
+.dk-vorschau {
+  display: flex; flex-direction: column;
+  width: min(1100px, 100%); height: min(860px, 100%);
+  background: var(--surface-3); border: 1px solid var(--line-strong);
+  border-radius: var(--r); box-shadow: var(--shadow); overflow: hidden;
+}
+.dk-vorschau-kopf {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.dk-vorschau-name {
+  font-weight: 550; font-size: 13.5px;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dk-vorschau-meta { font-size: 12.5px; color: var(--text-faint); white-space: nowrap; }
+.dk-vorschau-kopf .btn { margin-left: auto; }
+.dk-vorschau-buehne {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-sunk);
+}
+.dk-vorschau-buehne img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.dk-vorschau-buehne iframe { width: 100%; height: 100%; border: none; }
+
+@media (max-width: 900px) {
+  .dk-raster { grid-template-columns: 1fr; }
+  .dk-faecher { position: static; flex-direction: row; flex-wrap: wrap; }
+  .dk-faecher button { flex: 0 0 auto; }
+  .dk-zeile { grid-template-columns: 1fr; }
+  .dk-marken { flex-wrap: wrap; justify-content: flex-end; }
+  .dk-vorschau-huelle { padding: 0; }
+  .dk-vorschau { width: 100%; height: 100%; border-radius: 0; border: none; }
+}
+
+/* ---- Was ist neu ------------------------------------------------------ */
+
+.cl-liste { display: flex; flex-direction: column; gap: 14px; max-width: 860px; }
+.cl-fassung { padding: 18px 20px; }
+/* Eine Fassung, die der Nutzer noch nicht gesehen hat, traegt die Kennfarbe
+   als Kante — dasselbe Mittel wie bei den Modulkarten. */
+.cl-fassung.ist-neu { border-left: 2px solid var(--blue); }
+
+.cl-kopf { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.cl-version { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+.cl-datum { font-size: 13px; color: var(--text-faint); }
+.cl-marke {
+  margin-left: auto; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--blue-soft); padding: 3px 9px;
+  background: rgba(58, 160, 255, 0.12); border-radius: var(--r-sm);
+}
+
+.cl-gruppe + .cl-gruppe { margin-top: 16px; }
+.cl-art {
+  margin: 0 0 8px; font-size: 11.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-faint);
+}
+/* Die drei Arten sind kein Schmuck: „Behoben" liest man anders als „Neu". */
+.cl-art.neu { color: var(--green-soft); }
+.cl-art.behoben { color: var(--amber); }
+.cl-art.geaendert { color: var(--blue-soft); }
+
+.cl-punkte { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+.cl-punkte li {
+  position: relative; padding-left: 16px;
+  font-size: 14px; line-height: 1.55; color: var(--text-dim);
+}
+/* Der Punkt sitzt auf der Grundlinie der ersten Zeile, nicht mittig im
+   Absatz — bei zweizeiligen Eintraegen rutschte er sonst in die Mitte. */
+.cl-punkte li::before {
+  content: ""; position: absolute; left: 3px; top: 0.62em;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--line-strong);
+}
+.cl-punkte strong { color: var(--text); font-weight: 550; }
+.cl-punkte code {
+  font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+  font-size: 0.88em; color: var(--text);
+  padding: 1px 5px; border-radius: var(--r-xs);
+  background: var(--bg-sunk); border: 1px solid var(--line);
+}
+
+@media (max-width: 700px) {
+  .cl-marke { margin-left: 0; }
 }

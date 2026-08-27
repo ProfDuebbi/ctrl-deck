@@ -79,6 +79,15 @@ const SYMBOLE = {
       <P d="M6 19.5V21M18 19.5V21" />
     </>
   ),
+  // Ein Blatt mit geknickter Ecke und drei Zeilen. Bewusst anders als
+  // „dokument": dort ist die Ecke der Punkt, hier ist es der Text darauf.
+  notizen: (
+    <>
+      <P d="M5 4.5h9.5L19 9v10.5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4 19.5v-14A1 1 0 0 1 5 4.5z" />
+      <P d="M14.5 4.5V9H19" />
+      <P d="M7.5 12.5h8M7.5 16h5.5" />
+    </>
+  ),
 
   // --- Navigation -----------------------------------------------------
   uebersicht: (
@@ -113,6 +122,65 @@ const SYMBOLE = {
     </>
   ),
   plus: <P d="M12 5v14M5 12h14" />,
+
+  // --- Werkzeugleiste des Notiz-Editors --------------------------------
+  // Fett, Kursiv und Durchgestrichen sind KEINE Symbole, sondern die
+  // Buchstaben B, I und S — so kennt man sie aus jedem Textprogramm, und ein
+  // gezeichnetes „B" waere schlechter lesbar als ein gesetztes.
+  liste: (
+    <>
+      <P d="M9 6.5h11M9 12h11M9 17.5h11" />
+      <circle cx="4.5" cy="6.5" r="1" />
+      <circle cx="4.5" cy="12" r="1" />
+      <circle cx="4.5" cy="17.5" r="1" />
+    </>
+  ),
+  nummern: (
+    <>
+      <P d="M9 6.5h11M9 12h11M9 17.5h11" />
+      <P d="M3.5 5.2 5 4.5v4" />
+      <P d="M3.4 10.6a1.3 1.3 0 1 1 2 1.1L3.4 13.9h2.2" />
+      <P d="M3.6 15.6h2l-1.2 1.5a1.2 1.2 0 1 1-.9 2" />
+    </>
+  ),
+  kaestchen: (
+    <>
+      <rect x="3.5" y="4" width="7" height="7" rx="1.5" />
+      <P d="M5.2 7.5 6.7 9l2.6-2.8" />
+      <rect x="3.5" y="13" width="7" height="7" rx="1.5" />
+      <P d="M13.5 7.5h7M13.5 16.5h7" />
+    </>
+  ),
+  zitat: (
+    <>
+      <P d="M4 5.5v13" />
+      <P d="M9.5 8.5h3.5v3.5a3 3 0 0 1-3 3" />
+      <P d="M16 8.5h3.5v3.5a3 3 0 0 1-3 3" />
+    </>
+  ),
+  code: <P d="M9 7.5 4.5 12 9 16.5M15 7.5 19.5 12 15 16.5" />,
+  codeblock: (
+    <>
+      <rect x="3" y="4.5" width="18" height="15" rx="2" />
+      <P d="M9.5 9.5 7 12l2.5 2.5M14.5 9.5 17 12l-2.5 2.5" />
+    </>
+  ),
+  kette: (
+    <>
+      <P d="M10 13.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1.2 1.2" />
+      <P d="M14 10.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1.2-1.2" />
+    </>
+  ),
+  linie: <P d="M3.5 12h17" />,
+  // Eine Reisszwecke von der Seite: Kopf, Schaft, Spitze. Sie steht fuer
+  // „bleibt oben" — nicht fuer „wichtig", das waere Farbe (Regel 3).
+  nadel: (
+    <>
+      <P d="M9 3.5h6" />
+      <P d="M10.5 3.5v6l-3 3.5h9l-3-3.5v-6" />
+      <P d="M12 13v7.5" />
+    </>
+  ),
   // Zwei Punktreihen — die uebliche Kennzeichnung fuer „hier anfassen".
   // Als Kontur gezeichnet, damit sie zum uebrigen Satz passt.
   griff: (

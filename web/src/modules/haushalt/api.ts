@@ -137,6 +137,15 @@ export interface Zahlung {
   notiz: string | null;
 }
 
+/** Eine einzelne Leihe. Die Summe eines Aussenstands ist die Summe seiner Posten. */
+export interface Posten {
+  id: number;
+  schuld_id: number;
+  datum: string;
+  betrag: number;
+  notiz: string | null;
+}
+
 export const hh = {
   vorschlaege: () => api<Vorschlaege>(`${base}/vorschlaege`),
   list: () => api<Fixkost[]>(`${base}/fixkosten`),
@@ -173,7 +182,7 @@ export const hh = {
     api(`${base}/jahre/${jahr}`, { method: "PUT", body: JSON.stringify(v) }),
 
   schulden: () => api<Schuld[]>(`${base}/schulden`),
-  createSchuld: (s: { person: string; gesamt: number; notiz?: string | null }) =>
+  createSchuld: (s: { person: string; gesamt: number; notiz?: string | null; datum?: string }) =>
     api<{ id: number }>(`${base}/schulden`, { method: "POST", body: JSON.stringify(s) }),
   updateSchuld: (id: number, s: Partial<Schuld> & { erledigt?: boolean | number }) =>
     api(`${base}/schulden/${id}`, { method: "PUT", body: JSON.stringify(s) }),
@@ -181,7 +190,15 @@ export const hh = {
   zahlungen: (id: number) => api<Zahlung[]>(`${base}/schulden/${id}/zahlungen`),
   addZahlung: (id: number, z: { datum: string; betrag: number; notiz?: string | null }) =>
     api<{ id: number }>(`${base}/schulden/${id}/zahlungen`, { method: "POST", body: JSON.stringify(z) }),
+  updateZahlung: (id: number, z: { datum: string; betrag: number; notiz?: string | null }) =>
+    api(`${base}/zahlungen/${id}`, { method: "PUT", body: JSON.stringify(z) }),
   removeZahlung: (id: number) => api(`${base}/zahlungen/${id}`, { method: "DELETE" }),
+  posten: (id: number) => api<Posten[]>(`${base}/schulden/${id}/posten`),
+  addPosten: (id: number, p: { datum: string; betrag: number; notiz?: string | null }) =>
+    api<{ id: number }>(`${base}/schulden/${id}/posten`, { method: "POST", body: JSON.stringify(p) }),
+  updatePosten: (id: number, p: { datum: string; betrag: number; notiz?: string | null }) =>
+    api(`${base}/posten/${id}`, { method: "PUT", body: JSON.stringify(p) }),
+  removePosten: (id: number) => api(`${base}/posten/${id}`, { method: "DELETE" }),
 };
 
 export const MONATE = [
