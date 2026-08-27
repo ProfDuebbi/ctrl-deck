@@ -8,7 +8,7 @@ Diese Datei ist die einzige Quelle: Das Programm liest sie beim Aufruf von
 und darunter Punkte mit `-`. Wer eine Zeile ergänzt, ändert damit zugleich das,
 was in der Oberfläche steht.
 
-## Unveröffentlicht
+## 0.3.0 — 27.08.2026
 
 ### Neu
 - **Modul Notizen** — freier Text mit einer Werkzeugleiste wie in einem
