@@ -1,7 +1,7 @@
 # CTRL·DECK
 
 Ein modulares Control-Dashboard für den eigenen Haushalt — Fixkosten, Arbeitszeit,
-Zählerstände, Termine, Dokumentnummern. **Läuft komplett auf deinem Rechner.**
+Zählerstände, Termine, Dokumente, Notizen. **Läuft komplett auf deinem Rechner.**
 Kein Konto bei irgendwem, kein API-Schlüssel, keine Telemetrie. Die Daten liegen
 in einer SQLite-Datei neben dem Programm und gehen nirgendwo hin.
 
@@ -13,7 +13,7 @@ in einer SQLite-Datei neben dem Programm und gehen nirgendwo hin.
 
 Für jede dieser Aufgaben gibt es eine App, und jede will ein Konto, ein Abo und
 die Daten auf ihrem Server. CTRL·DECK ist der Gegenentwurf: eine Oberfläche,
-neun Module, eine Datei. Wer es nicht mehr will, löscht den Ordner.
+elf Module, eine Datei. Wer es nicht mehr will, löscht den Ordner.
 
 ## Module
 
@@ -28,9 +28,15 @@ neun Module, eine Datei. Wer es nicht mehr will, löscht den Ordner.
 | **Lärmprotokoll** | Störungen dokumentieren, filtern, auswerten — als Bericht zum Drucken oder als PDF sichern. |
 | **Geburtstage** | Wer wann Geburtstag hat, mit Vorwarnung. |
 | **Tresor** | Steuer-ID, Versicherungsnummern & Ausweise — im Browser verschlüsselt hinter einem Master-Passwort. |
+| **Dokumente** | Ein Aktenschrank mit Fächern. Die Datei ist optional: Ein Eintrag darf auch nur festhalten, wo das Papier liegt. PDF und Bilder lassen sich direkt ansehen, Ablaufdaten wandern in den Terminfaden. |
+| **Notizen** | Freier Text mit Werkzeugleiste, Schlagworten, Wiedervorlage und Papierkorb — gespeichert wird schlichtes Markdown. |
+
+Einzelne Notizen und Dokumente lassen sich mit demselben Schlüssel wie der
+Tresor verschlüsseln — pro Eintrag umschaltbar, ohne zweites Passwort.
 
 Dazu im Gerüst: Wetter, globale Suche (`Strg`+`K`), Backups, ein- und
-ausblendbare Module, freie Reihenfolge per Ziehen.
+ausblendbare Module, freie Reihenfolge per Ziehen und eine Seite „Was ist neu",
+die nach einem Update zeigt, was dazugekommen ist.
 
 ## Blick hinein
 
@@ -85,7 +91,11 @@ Anmeldung. Ein Passwort vergessen? `npm run passwort-neu`.
   Anmeldung. Wer keinen Ort einstellt, spricht mit gar niemandem.
 - Der **Tresor** verschlüsselt im Browser (AES-256-GCM, Schlüssel aus dem
   Master-Passwort). Der Server bekommt nur Kauderwelsch zu sehen und kann die
-  Inhalte selbst dann nicht lesen, wenn jemand die Datenbank stiehlt.
+  Inhalte selbst dann nicht lesen, wenn jemand die Datenbank stiehlt. Dasselbe
+  gilt für Notizen und Dokumente, die als verschlüsselt markiert sind — samt
+  ihrer angehängten Dateien. Im Klartext bleibt dort nur, was eine Ansicht bei
+  verschlossenem Tresor überhaupt anzeigen können muss: Schlagworte, Fach und
+  Datumsangaben.
 - Automatische Sicherungen landen in `data/backups/`, auf Wunsch zusätzlich auf
   einer externen Platte.
 
@@ -194,8 +204,9 @@ genug für weitere Treiber; der Aufwand liegt im Dialekt, nicht im Anschluss.
 
 Was sich mit `DB_URL` sonst noch ändert:
 
-- **Tresor-Anhänge** wandern in die Datenbank statt nach `data/tresor/`. Erst
-  damit ist die Installation wirklich dateilos.
+- **Anhänge** wandern in die Datenbank statt in `data/tresor/` und
+  `data/dokumente/` — die des Tresors wie die der Dokumentenablage. Erst damit
+  ist die Installation wirklich dateilos.
 - **Sicherungen** werden exportiert statt kopiert: `ctrl-deck_<stand>.json`
   statt `.db`. Knopf, Liste, Wiederherstellen und die Spiegelung auf ein
   zweites Laufwerk funktionieren unverändert weiter.
@@ -234,6 +245,7 @@ ctrl-deck/
 │   ├─ src/core/      Dashboard-Gerüst, Modul-Registry, Startseite
 │   └─ src/modules/   je Feature ein Frontend-Modul
 └─ data/     ctrl-deck.db  +  backups/  +  exports/
+             +  tresor/ und dokumente/  (verschlüsselte Anhänge)
 ```
 
 ### Ein neues Modul hinzufügen
