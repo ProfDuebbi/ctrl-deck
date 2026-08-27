@@ -31,6 +31,23 @@
       JEDE Bewegung ab — das ist eine Zeile am Dateiende, keine Einzelfallpruefung.
    6. JEDES bedienbare Element hat einen sichtbaren Fokusring (:focus-visible).
       Wer outline:none schreibt, liefert Ersatz mit.
+
+   ----------------------------------------------------------------------
+   DIE EINE AUSNAHME: modules/gta6/gta6.css
+
+   Das Modul „GTA VI" bricht die Regeln 1, 3 und 5 — Verlaufsflaechen,
+   Verlaufstext, Leuchten, Sonnenuntergang. Das ist so gewollt und vom
+   Nutzer ausdruecklich entschieden, nicht liegengeblieben: der Hausstil
+   dient der Ablesbarkeit von Daten, und dieses Modul hat keine Daten. Es
+   zeigt eine Zahl, die kleiner wird.
+
+   Wer dort aufraeumt, macht es kaputt. Wer eine ZWEITE Ausnahme bauen
+   will, liest erst die Begruendung oben in gta6.css: sie gilt fuer ein
+   Modul ohne Daten und traegt kein anderes.
+
+   Alles daran haengt unter `.gta` bzw. `.gta-kachel`, steht in einer
+   eigenen Datei und ueberschreibt keine Variable von hier. So bleibt es
+   eine Insel.
    ====================================================================== */
 
 @import "@fontsource-variable/jost/index.css";

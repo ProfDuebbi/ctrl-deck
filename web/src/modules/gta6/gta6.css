@@ -1,0 +1,564 @@
+/* ======================================================================
+   GTA-VI-Countdown — die eine ausdrueckliche AUSNAHME vom Hausstil.
+   ----------------------------------------------------------------------
+   theme.css verbietet Verlaufsflaechen, Verlaufstext, Leuchten und
+   Bewegung ohne Aussage (Regeln 1, 3 und 5). Dieses Modul bricht alle
+   drei — mit Ansage und auf Wunsch des Nutzers.
+
+   Warum das hier vertretbar ist: der Hausstil dient der Ablesbarkeit
+   von Daten. Dieses Modul hat keine Daten. Es zeigt eine Zahl, die
+   kleiner wird, und der ganze Zweck ist die Vorfreude darauf. Ein
+   Countdown in Anthrazit mit Haarlinien waere eine Tabelle mit einem
+   Eintrag.
+
+   Damit die Ausnahme eine Ausnahme BLEIBT, gilt:
+
+   - Alles steht in DIESER Datei, nichts in theme.css. Sie wird nur von
+     `modules/gta6/` importiert und faerbt nichts anderes ein.
+   - Jede Regel haengt unter `.gta` oder `.gta-kachel`. Kein Selektor
+     hier darf ohne diesen Vorfahren auskommen.
+   - Keine der Variablen aus theme.css wird ueberschrieben. Was hier
+     eigene Farben braucht, bekommt eigene Namen mit `--gta-`.
+
+   Wer den naechsten Sonderfall bauen will: das ist KEIN Freibrief. Die
+   Begruendung oben gilt fuer ein Modul ohne Daten. Alles, was Zahlen
+   zeigt, die jemand ablesen muss, bleibt im Hausstil.
+   ====================================================================== */
+
+.gta {
+  /* Die Anker der Szene. Prozente einer Flaeche mit FESTER Hoehe — nur
+     deshalb stehen Sonne, Horizont und Text ueberall gleich zueinander.
+     Wer an --gta-hoehe dreht, sieht die drei anderen Werte nach. */
+  --gta-hoehe: clamp(340px, 44vh, 460px);
+  --gta-horizont: 62%;
+  --gta-sonne-oben: 41%;
+  --gta-sonne-gross: 46%;
+
+  --gta-nacht: #06030d;
+  --gta-magenta: #f5379c;
+  --gta-amber: #ffa63d;
+  --gta-cyan: #35d2f5;
+  --gta-papier: #f4f7fc;
+  --gta-papier-dim: #a7b0c2;
+  --gta-papier-faint: #6f778a;
+
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ---------------------------------------------------------------------
+   Das Plakat
+   --------------------------------------------------------------------- */
+
+.gta-buehne {
+  position: relative;
+  isolation: isolate;
+  height: var(--gta-hoehe);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+  /* Himmel und Boden in einem Verlauf, geteilt am Horizont. Der harte
+     Sprung an der Naht ist gewollt — das ist die Kante. */
+  background: linear-gradient(
+    180deg,
+    #05030c 0%,
+    #150525 18%,
+    #3d0b45 38%,
+    #8a1664 52%,
+    #d92a86 var(--gta-horizont),
+    #45104f var(--gta-horizont),
+    #06030d 100%
+  );
+}
+
+.gta-sterne {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--gta-horizont);
+  width: 100%;
+}
+
+/* Die Sonne. Oben dunkles Magenta, unten gluehend — nicht nur huebscher,
+   sondern der Grund, warum der Titel darauf lesbar ist: die Ziffern
+   sitzen im hellen Teil und leuchten selbst, die Schrift darueber im
+   dunklen. */
+.gta-sonne {
+  position: absolute;
+  top: var(--gta-sonne-oben);
+  left: 50%;
+  height: var(--gta-sonne-gross);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: linear-gradient(
+    180deg,
+    #a81f6c 0%,
+    #e0447e 28%,
+    #ff8a3d 62%,
+    #ffe08a 88%,
+    #fff6cf 100%
+  );
+  /* Die Streifen. Oben eine geschlossene Scheibe, darunter drei Zonen mit
+     nach unten wachsenden Luecken. Mehrere Maskenebenen werden ohne
+     weiteres Zutun vereinigt (`mask-composite` steht von Haus aus auf
+     `add`), deshalb genuegen die vier Bilder. */
+  --gta-fein: repeating-linear-gradient(180deg, #000 0 5px, transparent 5px 9px);
+  --gta-mittel: repeating-linear-gradient(180deg, #000 0 4px, transparent 4px 11px);
+  --gta-grob: repeating-linear-gradient(180deg, #000 0 3px, transparent 3px 14px);
+  -webkit-mask-image: linear-gradient(#000 0 0), var(--gta-fein), var(--gta-mittel), var(--gta-grob);
+  mask-image: linear-gradient(#000 0 0), var(--gta-fein), var(--gta-mittel), var(--gta-grob);
+  -webkit-mask-size: 100% 46%, 100% 16%, 100% 16%, 100% 22%;
+  mask-size: 100% 46%, 100% 16%, 100% 16%, 100% 22%;
+  -webkit-mask-position: 0 0, 0 46%, 0 62%, 0 78%;
+  mask-position: 0 0, 0 46%, 0 62%, 0 78%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* Der Lichthof am Horizont. Liegt ueber der Kante, damit sie nicht wie
+   ausgeschnitten wirkt. */
+.gta-schein {
+  position: absolute;
+  top: var(--gta-horizont);
+  left: 50%;
+  width: 150%;
+  height: 46%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(50% 50% at 50% 50%, rgb(245 55 156 / 0.5), transparent 70%);
+}
+
+/* Der Boden deckt ab. Der Verlauf der Buehne liegt HINTER der Sonne —
+   ohne eigene Flaeche hier schiene ihre untere Haelfte durch den Boden,
+   und dann geht sie nicht unter, sondern liegt davor. */
+.gta-boden {
+  position: absolute;
+  top: var(--gta-horizont);
+  left: 0;
+  width: 100%;
+  height: calc(100% - var(--gta-horizont));
+  background: linear-gradient(180deg, #45104f 0%, #1a0726 30%, #06030d 100%);
+}
+
+.gta-horizontlinie {
+  position: absolute;
+  top: var(--gta-horizont);
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #ffd9b0;
+  box-shadow: 0 0 26px 4px rgb(255 140 90 / 0.5);
+}
+
+/* Ueber die HOEHE bemessen, nicht ueber die Breite: so reicht der Stamm
+   immer bis zur Unterkante, egal wie breit das Fenster ist. */
+.gta-palme {
+  position: absolute;
+  bottom: 0;
+  aspect-ratio: 330 / 640;
+  fill: #07030f;
+}
+
+.gta-palme.links {
+  left: -3%;
+  height: 68%;
+}
+
+.gta-palme.rechts {
+  right: -3%;
+  height: 76%;
+  transform: scaleX(-1);
+}
+
+/* Die dritte steht weiter hinten und muss trotzdem ueber den Horizont
+   ragen — darunter ist der Boden so schwarz wie sie selbst, und eine
+   Silhouette auf gleichfarbigem Grund ist keine. */
+.gta-palme.fern {
+  left: 13%;
+  height: 52%;
+  opacity: 0.85;
+}
+
+/* Der Schleier. Haelt den Text lesbar, ohne den Sonnenuntergang
+   wegzuwischen: oben dunkel (dort steht nichts), in der Mitte fast
+   durchsichtig (dort leuchten die Ziffern selbst), unten wieder dunkel. */
+.gta-buehne::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgb(6 3 14 / 0.55) 0%,
+    rgb(6 3 14 / 0.12) 18%,
+    rgb(6 3 14 / 0.08) 46%,
+    rgb(6 3 14 / 0.42) 62%,
+    rgb(6 3 14 / 0.75) 80%
+  );
+  pointer-events: none;
+}
+
+.gta-inhalt {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.gta-wort {
+  font-size: clamp(11px, 1.1vw, 17px);
+  font-weight: 500;
+  letter-spacing: 0.34em;
+  /* Der Sperrsatz schiebt das Wort optisch nach links; die Haelfte des
+     Abstands zurueck, sonst steht die Zeile nicht ueber der Zahl. */
+  text-indent: 0.34em;
+  text-transform: uppercase;
+  color: var(--gta-papier);
+  text-shadow: 0 0 14px rgb(53 210 245 / 0.5), 0 1px 10px rgb(6 3 14 / 0.9);
+}
+
+/* Die „VI" ist der Auftritt. Kein fremdes Logo und keine fremde Schrift
+   — die Hausschrift, schwer gesetzt und leicht geneigt. Die Neigung
+   macht den Unterschied zwischen einer Zahl und einem Schriftzug. */
+.gta-zahlzeichen {
+  font-size: clamp(50px, 8vw, 92px);
+  font-weight: 700;
+  line-height: 0.86;
+  letter-spacing: 0.02em;
+  transform: skewX(-7deg);
+  background: linear-gradient(178deg, var(--gta-papier) 6%, var(--gta-amber) 44%, var(--gta-magenta) 92%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 10px rgb(6 3 14 / 0.85));
+}
+
+.gta-uhr {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: clamp(8px, 1.4vw, 20px);
+  margin-top: 2px;
+}
+
+.gta-feld {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 2.4ch;
+}
+
+.gta-zahl {
+  font-size: clamp(34px, 5.4vw, 68px);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: var(--gta-papier);
+  /* Der weisse Schein macht die Ziffern zu Leuchtschrift, die beiden
+     dunklen davor halten sie ueber dem hellen Teil der Sonne. */
+  text-shadow:
+    0 0 6px rgb(6 3 14 / 0.8),
+    0 0 20px rgb(6 3 14 / 0.55),
+    0 0 8px rgb(244 247 252 / 0.5),
+    0 0 44px rgb(245 55 156 / 0.5);
+}
+
+.gta-punkt {
+  font-size: clamp(20px, 3vw, 38px);
+  line-height: 1.25;
+  color: var(--gta-papier);
+  opacity: 0.5;
+}
+
+.gta-einheit {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--gta-papier);
+  text-shadow: 0 1px 10px rgb(6 3 14 / 0.95);
+}
+
+.gta-termin {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gta-papier);
+  text-shadow: 0 1px 10px rgb(6 3 14 / 0.95);
+}
+
+.gta-termin .ort {
+  opacity: 0.68;
+}
+
+/* Der Zustand „durch". Nur einer von beiden ist je zu sehen. */
+.gta-fertig {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.gta-fertig-titel {
+  font-size: clamp(30px, 5vw, 56px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  background: linear-gradient(100deg, var(--gta-cyan) 0%, var(--gta-magenta) 52%, var(--gta-amber) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.gta-fertig-note {
+  max-width: 40ch;
+  font-size: 13.5px;
+  color: var(--gta-papier-dim);
+  text-shadow: 0 1px 10px rgb(6 3 14 / 0.95);
+}
+
+/* ---------------------------------------------------------------------
+   Fortschritt und Marken.
+
+   Ab hier wird es wieder ruhig: das ist ablesbare Information, und
+   dafuer gilt der Hausstil. Flache Flaechen, Haarlinien, Farbe nur da,
+   wo sie einen Zustand meint. Nur der Balken traegt den Verlauf des
+   Plakats weiter, damit die beiden Haelften zusammengehoeren.
+   --------------------------------------------------------------------- */
+
+.gta-unten {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  /* `start`, nicht die Vorgabe `stretch`: die Markenliste ist deutlich
+     hoeher als der Fortschritt, und auf gleiche Hoehe gezogen stand
+     links ein halber Kasten Leere. */
+  align-items: start;
+  gap: 18px 28px;
+}
+
+.gta-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.gta-block-titel {
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.gta-balken {
+  height: 8px;
+  border-radius: var(--r-xs);
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.gta-balken > span {
+  display: block;
+  height: 100%;
+  width: var(--anteil);
+  background: linear-gradient(90deg, #9b6cff, var(--gta-magenta) 60%, var(--gta-amber));
+  /* Faehrt einmal auf seinen Wert — das ist Regel 5 des Hausstils,
+     nicht die Ausnahme: „wie voll ist das". */
+  transition: width var(--t-wachsen) var(--kurve);
+}
+
+.gta-balken-enden {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.gta-note {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.gta-marken {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gta-marke {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.gta-marke-punkt {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  transform: translateY(-1px);
+}
+
+.gta-marke.erreicht {
+  color: var(--text);
+}
+
+.gta-marke.erreicht .gta-marke-punkt {
+  background: var(--pink);
+  border-color: var(--pink);
+}
+
+.gta-marke-label {
+  flex: 1;
+}
+
+.gta-marke-zustand {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.gta-marke.erreicht .gta-marke-zustand {
+  color: var(--pink);
+}
+
+.gta-fussnote {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* ---------------------------------------------------------------------
+   Die Kachel auf der Startseite
+   --------------------------------------------------------------------- */
+
+.gta-kachel {
+  position: relative;
+  isolation: isolate;
+  /* Zwei Zeilen, nicht eine. Nebeneinander passten Zahl, Uhrzeit und
+     Marke nicht in die Kachelbreite — der Hinweis lief rechts hinaus. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 3px;
+  min-height: 92px;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: linear-gradient(180deg, #180627 0%, #5d1157 46%, #c22a7e 78%, #ff8a3d 100%);
+}
+
+.gta-kachel-oben {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* Ein angedeuteter Boden, damit die Kachel dieselbe Szene meint wie das
+   Plakat — mehr passt in 74 Pixel nicht hinein. */
+.gta-kachel::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 34%;
+  z-index: 1;
+  background:
+    repeating-linear-gradient(90deg, rgb(245 55 156 / 0.35) 0 1px, transparent 1px 22px),
+    linear-gradient(180deg, #45104f, #06030d);
+  pointer-events: none;
+}
+
+.gta-kachel-tage {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 0 10px rgb(6 3 14 / 0.7), 0 0 26px rgb(245 55 156 / 0.6);
+}
+
+.gta-kachel-einheit {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgb(255 255 255 / 0.82);
+  text-shadow: 0 1px 8px rgb(6 3 14 / 0.9);
+}
+
+.gta-kachel-rest {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  color: rgb(255 255 255 / 0.86);
+  text-shadow: 0 1px 8px rgb(6 3 14 / 0.9);
+}
+
+.gta-kachel-note {
+  position: relative;
+  z-index: 2;
+  max-width: 100%;
+  font-size: 11px;
+  /* Eine Zeile, abgeschnitten statt umgebrochen: die Kachel hat eine
+     feste Hoehe, und ein zweizeiliger Hinweis schoebe die Zahl heraus. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: rgb(255 255 255 / 0.78);
+  text-shadow: 0 1px 8px rgb(6 3 14 / 0.9);
+}
+
+/* ---------------------------------------------------------------------
+   Enger
+   --------------------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .gta {
+    --gta-hoehe: clamp(300px, 52vh, 400px);
+    --gta-sonne-gross: 40%;
+  }
+
+  .gta-unten {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .gta-palme.fern {
+    display: none;
+  }
+
+  /* Vier Zahlen mit Beschriftung sind auch ohne Doppelpunkte eindeutig,
+     und jeder kostet eine halbe Ziffernbreite. */
+  .gta-punkt {
+    display: none;
+  }
+
+  .gta-kachel-rest {
+    display: none;
+  }
+}

@@ -11,6 +11,7 @@ import { fahrzeugModule } from "../modules/fahrzeug";
 import { tresorModule } from "../modules/tresor";
 import { notizenModule } from "../modules/notizen";
 import { dokumenteModule } from "../modules/dokumente";
+import { gta6Module } from "../modules/gta6";
 
 /**
  * Ein Dashboard-Modul ist eine in sich geschlossene Funktion.
@@ -44,6 +45,7 @@ export const dashboardModules: DashboardModule[] = [
   tresorModule,
   notizenModule,
   dokumenteModule,
+  gta6Module,
 ];
 
 // Vorschau auf geplante Module (nur Anzeige auf der Startseite, noch inaktiv).

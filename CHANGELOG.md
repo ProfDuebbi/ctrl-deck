@@ -8,6 +8,18 @@ Diese Datei ist die einzige Quelle: Das Programm liest sie beim Aufruf von
 und darunter Punkte mit `-`. Wer eine Zeile ergänzt, ändert damit zugleich das,
 was in der Oberfläche steht.
 
+## Unveröffentlicht
+
+### Neu
+- **Modul GTA VI** — ein Countdown bis zum 19. November 2026, sekundengenau,
+  mit Fortschritt seit dem ersten Trailer und Marken auf dem Weg („noch ein
+  halbes Jahr", „zum letzten Mal dreistellig", „der letzte Monat"). Ist der
+  Tag da, treten die Ziffern ab und es steht nur noch „Es ist so weit."
+  Das Modul speichert nichts und fragt nichts ab — es rechnet mit der Uhr
+  dieses Rechners. **Es ist zugleich die einzige bewusste Ausnahme vom
+  Hausstil:** Sonnenuntergang, Neon und Leuchtschrift, begründet in
+  `web/src/modules/gta6/gta6.css`.
+
 ## 0.3.0 — 27.08.2026
 
 ### Neu
