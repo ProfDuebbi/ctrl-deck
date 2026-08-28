@@ -8,6 +8,18 @@ Diese Datei ist die einzige Quelle: Das Programm liest sie beim Aufruf von
 und darunter Punkte mit `-`. Wer eine Zeile ergänzt, ändert damit zugleich das,
 was in der Oberfläche steht.
 
+## Unveröffentlicht
+
+### Behoben
+- **„Was ist neu" meldet zuverlässig.** Bis jetzt merkte sich das Programm die
+  zuletzt gelesene Fassung an ihrem **Namen** — und eine Fassung heißt erst
+  „Unveröffentlicht" und trägt beim Release plötzlich eine Nummer. Wer sie
+  vorher gelesen hatte, dessen Merkzeichen zeigte danach ins Leere, und
+  ausgerechnet die erste Meldung nach einer Veröffentlichung fiel stillschweigend
+  aus. Gemerkt wird jetzt zusätzlich, **wie viele** Fassungen es damals gab; das
+  übersteht jedes Umbenennen. Bestehende Installationen tragen das beim ersten
+  Aufruf von selbst nach.
+
 ## 0.3.1 — 28.08.2026
 
 ### Neu

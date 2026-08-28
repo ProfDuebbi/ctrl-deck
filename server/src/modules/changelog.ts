@@ -24,6 +24,18 @@ const DATEI = path.join(ROOT_DIR, "CHANGELOG.md");
 /** Unter diesem Schluessel steht, bis wohin der Nutzer gelesen hat. */
 const GESEHEN = "changelog_gesehen";
 
+/**
+ * Und hier, WIE VIELE Fassungen es damals gab.
+ *
+ * Der Name allein taugt nicht als Zeiger: Eine Fassung heisst erst
+ * „Unveröffentlicht" und traegt beim Release ploetzlich eine Nummer. Wer sie
+ * vorher gelesen hat, dessen gespeicherter Name steht dann nicht mehr in der
+ * Datei — der Zeiger geht ins Leere, und ausgerechnet die erste Meldung nach
+ * dem Release faellt stillschweigend aus. Die Anzahl uebersteht das
+ * Umbenennen, weil die Liste nur oben waechst.
+ */
+const GESEHEN_ANZAHL = "changelog_gesehen_anzahl";
+
 export interface Gruppe {
   /** „Neu", „Geändert", „Behoben" — was in der Datei als `###` steht. */
   art: string;
@@ -121,14 +133,11 @@ const router = machRouter();
  */
 router.get("/", async (_req, res) => {
   const fassungen = lies();
-  const gesehen = await gesehenStand(fassungen);
-  const grenze = fassungen.findIndex((f) => f.version === gesehen);
+  const stand = await gesehenStand(fassungen);
+  const grenze = grenzeFinden(fassungen, stand);
   res.json({
-    fassungen: fassungen.map((f, i) => ({
-      ...f,
-      neu: grenze < 0 ? false : i < grenze,
-    })),
-    gesehen,
+    fassungen: fassungen.map((f, i) => ({ ...f, neu: i < grenze })),
+    gesehen: stand.version,
   });
 });
 
@@ -140,36 +149,79 @@ router.get("/", async (_req, res) => {
  */
 router.get("/status", async (_req, res) => {
   const fassungen = lies();
-  const gesehen = await gesehenStand(fassungen);
-  const grenze = fassungen.findIndex((f) => f.version === gesehen);
   res.json({
-    neu: grenze < 0 ? 0 : grenze,
+    neu: grenzeFinden(fassungen, await gesehenStand(fassungen)),
     neuesteFassung: fassungen[0]?.version ?? null,
   });
 });
 
 /** Alles als gelesen markieren. */
 router.post("/gesehen", async (_req, res) => {
-  const fassungen = lies();
-  if (fassungen.length > 0) await setSetting(GESEHEN, fassungen[0].version);
-  res.json({ ok: true, gesehen: fassungen[0]?.version ?? null });
+  const stand = await merke(lies());
+  res.json({ ok: true, gesehen: stand.version });
 });
 
+/** Bis wohin wurde gelesen — der Name und, verlaesslicher, die Anzahl. */
+export interface Stand {
+  /** Wie die zuletzt gelesene Fassung hiess. Der genaue, aber zerbrechliche Weg. */
+  version: string | null;
+  /** Wie viele Fassungen es damals gab. Der grobe, aber haltbare Weg. */
+  anzahl: number | null;
+}
+
 /**
- * Bis wohin wurde gelesen?
+ * Wie viele Fassungen sind seit dem letzten Besuch dazugekommen?
  *
- * Steht noch nichts da, gilt die neueste Fassung als gelesen — und zwar
- * dauerhaft, sie wird gleich gespeichert. Sonst leuchtete bei einer frischen
- * Installation ein „Neu!"-Punkt fuer Aenderungen, die es fuer diesen Nutzer
- * nie gab: Er hat nichts verpasst, er faengt gerade erst an. Gemeldet wird
- * damit erst, was NACH diesem Moment dazukommt.
+ * Zuerst wird der Name gesucht: Steht er noch in der Datei, ist sein Platz die
+ * genaue Antwort. Findet er sich nicht mehr — umbenannt, umformuliert,
+ * entfernt —, zaehlt die Anzahl. Ist auch die unbekannt, wird nichts gemeldet:
+ * lieber eine Meldung verpassen als jemanden mit einer Liste begruessen, die
+ * er laengst gelesen hat.
  */
-async function gesehenStand(fassungen: Fassung[]): Promise<string | null> {
-  const gespeichert = await getSetting(GESEHEN);
-  if (gespeichert) return gespeichert;
-  const neueste = fassungen[0]?.version ?? null;
-  if (neueste) await setSetting(GESEHEN, neueste);
-  return neueste;
+export function grenzeFinden(fassungen: Fassung[], stand: Stand): number {
+  const platz = fassungen.findIndex((f) => f.version === stand.version);
+  if (platz >= 0) return platz;
+  if (stand.anzahl !== null) return Math.max(0, fassungen.length - stand.anzahl);
+  return 0;
+}
+
+/**
+ * Den gespeicherten Stand holen — und dabei aufraeumen.
+ *
+ * Steht noch gar nichts da, gilt die neueste Fassung als gelesen, und zwar
+ * dauerhaft: Sonst leuchtete bei einer frischen Installation ein „Neu!"-Punkt
+ * fuer Aenderungen, die es fuer diesen Nutzer nie gab. Er hat nichts verpasst,
+ * er faengt gerade erst an.
+ *
+ * Steht ein Name ohne Anzahl da, stammt er aus der Zeit davor. Die Anzahl wird
+ * dann einmalig nachgetragen — aus dem Platz des Namens, solange er noch
+ * auffindbar ist, sonst als „alles gelesen". Wer schon einmal hier war, soll
+ * nicht ploetzlich die ganze Geschichte als neu vorgesetzt bekommen.
+ */
+async function gesehenStand(fassungen: Fassung[]): Promise<Stand> {
+  const version = await getSetting(GESEHEN);
+  if (version === null) return merke(fassungen);
+
+  const roh = await getSetting(GESEHEN_ANZAHL);
+  if (roh !== null && /^\d+$/.test(roh)) return { version, anzahl: Number(roh) };
+
+  const platz = fassungen.findIndex((f) => f.version === version);
+  const anzahl = platz >= 0 ? fassungen.length - platz : fassungen.length;
+  await setSetting(GESEHEN_ANZAHL, String(anzahl));
+  return { version, anzahl };
+}
+
+/** Alles als gelesen festhalten. Name und Anzahl gehoeren dabei zusammen. */
+async function merke(fassungen: Fassung[]): Promise<Stand> {
+  const stand: Stand = {
+    version: fassungen[0]?.version ?? null,
+    anzahl: fassungen.length,
+  };
+  if (stand.version !== null) {
+    await setSetting(GESEHEN, stand.version);
+    await setSetting(GESEHEN_ANZAHL, String(stand.anzahl));
+  }
+  return stand;
 }
 
 export const changelogModule: ServerModule = {
