@@ -8,7 +8,7 @@ Diese Datei ist die einzige Quelle: Das Programm liest sie beim Aufruf von
 und darunter Punkte mit `-`. Wer eine Zeile ergänzt, ändert damit zugleich das,
 was in der Oberfläche steht.
 
-## Unveröffentlicht
+## 0.3.1 — 28.08.2026
 
 ### Neu
 - **Modul GTA VI** — ein Countdown bis zum 19. November 2026, sekundengenau,
