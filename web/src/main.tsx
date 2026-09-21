@@ -14,6 +14,13 @@ import { ConfirmProvider } from "./core/ui";
 import { Tuer } from "./core/Tuer";
 import { ReminderWatcher } from "./modules/aufgaben/ReminderWatcher";
 import "./core/theme.css";
+// Die zweite Haut. Reihenfolge ist Absicht: erst das Hausdesign, dann das
+// Kit, zuletzt die Bruecke, die beide verbindet. Alles daran haengt unter
+// `html[data-haut="nexus"]` bzw. `.nx` — ohne die Haut ist es wirkungslos.
+import "./haut/nexus/nexus.css";
+import "./haut/nexus/bruecke.css";
+// Setzt `data-haut` und die Akzentfarbe, bevor React das erste Mal zeichnet.
+import "./haut/haut";
 
 // Alles Datenfuehrende liegt hinter der Tuer — auch der ReminderWatcher, der
 // sonst im Hintergrund gegen einen verschlossenen Server pollen wuerde.

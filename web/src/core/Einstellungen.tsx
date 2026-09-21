@@ -3,6 +3,10 @@ import { api, fehlerText } from "./api";
 import { BildEditor } from "./BildEditor";
 import { kopfApi, kopfSetzen, useKopf, type Kopf } from "./kopf";
 import { Icon } from "./Icon";
+import {
+  akzentSetzen, breiteSetzen, BREITEN, HAEUTE, hautSetzen, useHaut, type Haut,
+} from "../haut/haut";
+import { AKZENT_VORGABE } from "../haut/akzent";
 
 /**
  * Die Einstellungen — alles, was nicht „wer bin ich" ist.
@@ -39,6 +43,7 @@ export function Einstellungen({
 
   return (
     <div className="profil">
+      <AussehenBlock />
       <StartseiteBlock melde={melde} name={name} />
       <KontoBlock melde={melde} />
       <DashboardBlock
@@ -72,6 +77,142 @@ function Block({ titel, erklaerung, children }: { titel: string; erklaerung: str
       </div>
       {children}
     </section>
+  );
+}
+
+// --- Aussehen -------------------------------------------------------------
+
+/**
+ * Fuenf Vorschlaege fuer die Akzentfarbe.
+ *
+ * Bewusst KEINE Farbe aus dem Bedeutungsbereich: ein gruener Akzent saehe
+ * aus wie „erledigt", ein roter wie „kaputt", ein bernsteinfarbener wie
+ * „Achtung". Die Engine wuerde sie klaglos annehmen — die Oberflaeche
+ * verlöre aber ihre Ampel. Wer das trotzdem will, kann jede Farbe frei
+ * waehlen; vorschlagen muss man es nicht.
+ */
+const AKZENT_VORSCHLAEGE: { farbe: string; name: string }[] = [
+  { farbe: AKZENT_VORGABE, name: "Violett" },
+  { farbe: "#6366f1", name: "Indigo" },
+  { farbe: "#3aa0ff", name: "Deck-Blau" },
+  { farbe: "#22d3ee", name: "Türkis" },
+  { farbe: "#ec4899", name: "Pink" },
+];
+
+/**
+ * Die Wahl der Haut.
+ *
+ * Steht ganz oben, weil sie alles darunter aussehen laesst — und weil man
+ * beim Umschalten sofort sieht, was passiert: die Seite wechselt unter der
+ * Hand das Aussehen, ohne neu zu laden und ohne die Stelle zu verlieren.
+ */
+function AussehenBlock() {
+  const { haut, akzent, breite } = useHaut();
+
+  return (
+    <Block
+      titel="Aussehen"
+      erklaerung="Zwei Häute für dieselben Daten. Die Wahl gilt für diesen Browser, nicht für das Dashboard — am Schreibtisch die ruhige, am Fernseher die bunte."
+    >
+      <div className="haut-wahl" role="group" aria-label="Aussehen">
+        {HAEUTE.map((h) => (
+          <button
+            key={h.wert}
+            type="button"
+            className={`haut-karte ${haut === h.wert ? "aktiv" : ""}`}
+            onClick={() => hautSetzen(h.wert)}
+            aria-pressed={haut === h.wert}
+          >
+            <HautVorschau haut={h.wert} />
+            <strong>{h.label}</strong>
+            <span>{h.erklaerung}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Gilt in beiden Häuten — deshalb steht die Zeile außerhalb der
+          Verzweigung darunter. */}
+      <div className="profil-zeile">
+        <div className="profil-zeile-text">
+          <strong>Inhaltsbreite</strong>
+          <span>
+            Wie weit der Inhalt höchstens laufen darf. „Voll“ nutzt den ganzen
+            Bildschirm — auf einem sehr breiten Schirm passen damit mehr
+            Kacheln nebeneinander, dafür werden Textzeilen lang.
+          </span>
+        </div>
+        <div className="art-wahl" role="group" aria-label="Inhaltsbreite">
+          {BREITEN.map((b) => (
+            <button
+              key={b.wert}
+              type="button"
+              className={`seg-btn ${breite === b.wert ? "aktiv" : ""}`}
+              onClick={() => breiteSetzen(b.wert)}
+              aria-pressed={breite === b.wert}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {haut === "nexus" && (
+        <div className="profil-zeile">
+          <div className="profil-zeile-text">
+            <strong>Akzentfarbe</strong>
+            <span>
+              Färbt Knöpfe, den aktiven Punkt, den Fokusring und den Verlauf.
+              Grün, Bernstein und Rot bleiben, wie sie sind — sonst wäre „Fehler“
+              Geschmackssache.
+            </span>
+          </div>
+          <div className="akzent-wahl">
+            {AKZENT_VORSCHLAEGE.map((v) => (
+              <button
+                key={v.farbe}
+                type="button"
+                className={`akzent-tupfer ${akzent.toLowerCase() === v.farbe.toLowerCase() ? "aktiv" : ""}`}
+                style={{ background: v.farbe }}
+                onClick={() => akzentSetzen(v.farbe)}
+                title={v.name}
+                aria-label={`Akzentfarbe ${v.name}`}
+                aria-pressed={akzent.toLowerCase() === v.farbe.toLowerCase()}
+              />
+            ))}
+            <label className="akzent-frei" title="Eigene Farbe">
+              <input
+                type="color"
+                value={akzent}
+                onChange={(e) => akzentSetzen(e.target.value)}
+                aria-label="Eigene Akzentfarbe"
+              />
+              <span className="sr-only">Eigene Farbe</span>
+            </label>
+          </div>
+        </div>
+      )}
+    </Block>
+  );
+}
+
+/**
+ * Winzige Nachbildung des jeweiligen Rahmens — kein Bild, sondern dieselben
+ * Flaechen in klein. Der Unterschied zwischen den beiden Haeuten ist vor
+ * allem ein Unterschied im AUFBAU (Leiste links gegen Kopfzeile plus
+ * Schiene); zwei Namen nebeneinander sagten darueber nichts.
+ */
+function HautVorschau({ haut }: { haut: Haut }) {
+  return (
+    <span className={`haut-bild haut-bild-${haut}`} aria-hidden="true">
+      {haut === "nexus" && <i className="hb-kopf" />}
+      <i className="hb-leiste" />
+      <i className="hb-flaeche">
+        <i />
+        <i />
+        <i />
+        <i />
+      </i>
+    </span>
   );
 }
 

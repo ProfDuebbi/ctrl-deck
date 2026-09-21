@@ -498,6 +498,13 @@ button.nav-item:hover:not(.active) { background: var(--surface-2); color: var(--
   height: 100vh;
   position: relative;
   overflow-y: auto;
+  /* Obergrenze fuer den Inhalt, einstellbar unter „Aussehen". Ohne Angabe
+     `none` — die volle Breite, wie es diese Oberflaeche immer getan hat.
+     Auf einem sehr breiten Schirm mag man es enger; `margin-inline: auto`
+     ruecken den Inhalt dann in die Mitte der Spalte neben der Leiste. */
+  width: 100%;
+  max-width: var(--inhalt-breite, none);
+  margin-inline: auto;
 }
 
 .hero {
@@ -2398,6 +2405,102 @@ td.hh-plus { color: var(--green-soft); font-variant-numeric: tabular-nums; }
   padding: 10px 12px;
 }
 .profil-ortssuche input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; border-color: var(--blue); }
+
+/* ---- Wahl der Haut ----------------------------------------------------
+   Die Oberflaeche kann zwei Aussehen tragen: diese Instrumententafel und
+   die zweite Haut in `haut/nexus/`. Der Schalter dafuer steht hier und
+   nicht dort — er muss in BEIDEN Haeuten funktionieren und aussehen, wie
+   die Seite gerade aussieht.
+
+   Die Kacheln zeigen eine Nachbildung des Rahmens statt zweier Namen: Der
+   Unterschied ist vor allem ein Unterschied im Aufbau (Leiste links gegen
+   Kopfzeile plus Schiene), und den liest man aus einer Skizze schneller als
+   aus einem Satz. */
+
+.haut-wahl { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.haut-karte {
+  font: inherit; text-align: left; cursor: pointer;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border-radius: var(--r-sm);
+  background: var(--bg-sunk); border: 1px solid var(--line); color: var(--text);
+  transition: border-color var(--t) linear, background var(--t) linear;
+}
+.haut-karte:hover { border-color: var(--line-strong); }
+.haut-karte.aktiv { border-color: var(--blue); background: var(--surface-2); }
+.haut-karte strong { font-size: 13.5px; font-weight: 550; }
+.haut-karte span { font-size: 11.5px; color: var(--text-faint); line-height: 1.5; }
+
+/* Die Nachbildung. Kein Bild, sondern dieselben Flaechen in klein — dann
+   stimmt sie auch nach dem naechsten Umbau noch. Damit die Skizze bei
+   68 Pixeln Hoehe ueberhaupt etwas SAGT, brauchen ihre Teile mehr
+   Unterschied als die echten: Leiste und Karten liegen deutlich heller auf
+   dem versenkten Grund, und jede Karte traegt eine Kante. */
+.haut-bild {
+  display: grid; gap: 3px; height: 68px; padding: 4px;
+  border-radius: var(--r-xs); background: var(--bg-sunk); border: 1px solid var(--line);
+  overflow: hidden;
+}
+.haut-bild i { display: block; background: var(--surface); border: 1px solid var(--line); }
+.haut-bild .hb-flaeche {
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px;
+  background: none; border: none;
+}
+
+/* Leiste und Kopfzeile sind das GERUEST und liegen deshalb heller als die
+   Karten — sonst liest sich die Skizze als Tabelle und der Unterschied
+   zwischen den beiden Haeuten verschwindet. Die Striche darin deuten die
+   Menuepunkte an; sie kommen aus dem Hintergrund, damit die Nachbildung
+   ohne zusaetzliches Markup auskommt. */
+.haut-bild .hb-leiste,
+.haut-bild .hb-kopf { background-color: var(--surface-3); }
+.haut-bild .hb-leiste {
+  padding: 4px 2px;
+  background-image: repeating-linear-gradient(
+    to bottom, var(--text-faint) 0 2px, transparent 2px 7px
+  );
+  background-origin: content-box;
+  background-clip: content-box, border-box;
+}
+
+/* Instrumententafel: breite Leiste links, Karten rechts. Kleine Radien,
+   die Kennfarbe als Streifen an der linken Kante — wie die echten Kacheln. */
+.haut-bild-klassisch { grid-template-columns: 22px 1fr; }
+.haut-bild-klassisch i { border-radius: 1px; }
+.haut-bild-klassisch .hb-flaeche i { border-left: 2px solid var(--violet); }
+
+/* Nexus: Kopfzeile ueber allem, darunter schmale Schiene und Karten.
+   Groessere Radien, die Kennfarbe als Haarlinie oben. */
+.haut-bild-nexus { grid-template-columns: 13px 1fr; grid-template-rows: 11px 1fr; }
+.haut-bild-nexus i { border-radius: 3px; }
+.haut-bild-nexus .hb-kopf { grid-column: 1 / -1; }
+.haut-bild-nexus .hb-flaeche i { border-top: 2px solid var(--violet); }
+
+/* --- Die Akzentfarbe (nur in der Haut „Nexus" sichtbar) --------------- */
+
+/* `flex: none` ist hier keine Feinheit: ohne das schrumpft die Reihe neben
+   dem Erklaertext und die sechs Tupfer brechen auf zwei Zeilen um. */
+.akzent-wahl { display: flex; align-items: center; gap: 6px; flex: none; }
+.akzent-tupfer {
+  width: 22px; height: 22px; padding: 0; cursor: pointer;
+  border-radius: 50%; border: 1px solid var(--line-strong);
+  transition: transform var(--t) linear, box-shadow var(--t) linear;
+}
+.akzent-tupfer:hover { border-color: var(--text-faint); }
+/* Der gewaehlte Tupfer traegt einen Ring in Seitenfarbe — die Farbe selbst
+   kann ihn nicht markieren, sie ist ja der Inhalt. */
+.akzent-tupfer.aktiv { box-shadow: 0 0 0 2px var(--bg-sunk), 0 0 0 4px var(--text); }
+.akzent-frei {
+  display: inline-grid; place-items: center; cursor: pointer;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1px dashed var(--line-strong);
+}
+.akzent-frei:hover { border-color: var(--text-faint); }
+.akzent-frei input[type="color"] {
+  width: 20px; height: 20px; padding: 0; cursor: pointer;
+  background: none; border: none;
+}
+.akzent-frei input[type="color"]::-webkit-color-swatch { border: none; border-radius: 50%; }
+.akzent-frei input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
 
 /* ---- Profilseite ----------------------------------------------------- */
 

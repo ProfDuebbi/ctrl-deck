@@ -10,7 +10,32 @@ was in der Oberfläche steht.
 
 ## Unveröffentlicht
 
+### Neu
+- **Ein zweites Aussehen: „Nexus".** Die Oberfläche kann jetzt zwei Häute
+  tragen. Die **Instrumententafel** bleibt die Vorgabe und ändert sich um
+  kein Pixel: flache Flächen, Haarlinien, Farbe nur da, wo sie etwas
+  bedeutet. Daneben steht **Nexus** — gestapelte Flächen, runde Ecken, eine
+  Kopfzeile mit Marke, Suche und Profil, eine Icon-Schiene statt der
+  Seitenleiste und Licht im Hintergrund. Umgeschaltet wird unter
+  **Einstellungen → Aussehen**; die Wahl gilt für den Browser, in dem du
+  gerade sitzt, nicht für das Dashboard. Alle Module ziehen ohne eigenes
+  Zutun mit.
+- **Eine Farbe färbt alles.** In der Haut „Nexus" hängt das ganze Bild an
+  einer Akzentfarbe: Knöpfe, der aktive Punkt in der Schiene, der Fokusring
+  und der Marken-Verlauf. Fünf Vorschläge stehen bereit, jede andere Farbe
+  lässt sich frei wählen — Helligkeit und Sättigung werden dabei so
+  nachgezogen, dass heller Text auf einem Knopf lesbar bleibt. **Grün,
+  Bernstein und Rot ändern sich nicht mit:** sie bedeuten etwas, und was
+  „Fehler" heißt, darf keine Geschmacksfrage werden.
+- **Inhaltsbreite einstellbar** — Schmal, Mittel, Breit oder Voll, unter
+  **Einstellungen → Aussehen** und in beiden Häuten wirksam. Auf einem sehr
+  breiten Schirm blieben links und rechts sonst hunderte Pixel leer,
+  ausgerechnet auf einer Kachelwand, deren Zweck es ist, viel auf einmal zu
+  zeigen. Vorgabe ist „Voll".
+
 ### Behoben
+- **Zwei Menüpunkte gleichzeitig als aktuelle Seite markiert.** Stand man in
+  „Was ist neu", zeigte die Seitenleiste zusätzlich „Übersicht" als aktiv an.
 - **„Was ist neu" meldet zuverlässig.** Bis jetzt merkte sich das Programm die
   zuletzt gelesene Fassung an ihrem **Namen** — und eine Fassung heißt erst
   „Unveröffentlicht" und trägt beim Release plötzlich eine Nummer. Wer sie

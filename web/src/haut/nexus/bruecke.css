@@ -1,0 +1,628 @@
+/* ======================================================================
+   HAUT „NEXUS" — die Bruecke
+   ----------------------------------------------------------------------
+   CTRL·DECK hat ein eigenes Aussehen: `core/theme.css`, die
+   Instrumententafel. Flach, kantig, farbsparsam. Das bleibt die Vorgabe
+   und wird hier NICHT angefasst — keine Zeile, kein Wert.
+
+   Diese Datei ist eine zweite Haut daneben. Sie haengt vollstaendig unter
+   `html[data-haut="nexus"]`; schaltet man zurueck, ist sie wirkungslos und
+   die alte Oberflaeche steht wieder da, wie sie war.
+
+   WIE SIE ARBEITET — in dieser Reihenfolge:
+
+     1. TOKENS UMBIEGEN. theme.css benutzt seine Werte konsequent ueber
+        Variablen (`var(--surface)`, `var(--line)`, `var(--blue)`, `var(--r)`).
+        Wer diese Variablen austauscht, faerbt damit ALLE Module mit, ohne
+        eine einzige Modulregel anzufassen. Das ist der grosse Hebel und der
+        Grund, warum diese Datei nicht 3.000 Zeilen lang ist.
+
+     2. FORM NACHZIEHEN. Was sich nicht aus einer Farbe ergibt — runde
+        Ecken, der Marken-Verlauf auf dem Hauptknopf, die Pille statt des
+        Rechtecks, das Anheben beim Ueberfahren — steht unten als gezielte
+        Regel fuer die Bausteine, die die ganze App teilt.
+
+     3. DEN RAHMEN uebernimmt `RahmenNexus.tsx` mit den echten Klassen des
+        Kits (`.nx-top`, `.nx-rail`, `.nx-content`). Hier steht nur, was
+        passiert, wenn CTRL·DECK-Inhalt in diesem Rahmen sitzt.
+
+   REGEL 3 GILT WEITER. Gruen heisst erledigt, Bernstein heisst Achtung, Rot
+   heisst kaputt — die Bedeutungsfarben faerben sich NICHT mit dem Akzent um.
+   Beide Regelwerke verlangen das, aus demselben Grund: sonst wird „Fehler"
+   zur Geschmacksfrage. Umgefaerbt wird nur, was „bedienbar/aktiv" heisst.
+
+   Farbe: `haut/akzent.ts` schreibt `--nx-accent*` und `--nx-grad` als
+   Inline-Werte ans <html>. Alles hier haengt daran.
+   ====================================================================== */
+
+@import "@fontsource-variable/inter/index.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/600.css";
+
+/* ── 1. Tokens ─────────────────────────────────────────────────────────
+   Links die Namen, die CTRL·DECK kennt — rechts die Werte des Kits.
+   Die Palette ist aus `nexus/nexus.css` gespiegelt (dort auf `.nx`); wer
+   das Kit erneuert, zieht diese Flaechen- und Schriftwerte mit. */
+
+html[data-haut="nexus"] {
+  /* Akzent des Kits. Steht auch hier und nicht nur auf `.nx`, weil die
+     Anmeldetuer vor der App-Schale kommt und trotzdem faerben soll. */
+  --akzent: var(--nx-accent, #8b5cf6);
+  --akzent-2: var(--nx-accent-2, #ff2e88);
+  --akzent-3: var(--nx-accent-3, #4f7dff);
+  --grad: var(--nx-grad, linear-gradient(105deg, var(--akzent-3) 0%, var(--akzent) 50%, var(--akzent-2) 100%));
+  --akzent-soft: var(--nx-accent-soft, rgba(139, 92, 246, 0.14));
+  --akzent-glow: var(--nx-accent-glow, rgba(139, 92, 246, 0.45));
+
+  /* Flaechen: gestapelt statt gerahmt, vier Stufen wie im Kit. */
+  --bg: #0e0f13;
+  --bg-sunk: #0a0b0e;     /* Eingabefelder, Balkenspuren — eine Stufe unter bg */
+  --surface: #15171c;
+  --surface-2: #1b1e25;
+  --surface-3: #21242c;
+
+  --line: #262a33;
+  --line-strong: #343945;
+
+  /* --- Schrift ------------------------------------------------------ */
+  --text: #e7e8eb;
+  --text-dim: #aab1bd;
+  --text-faint: #828a99;
+
+  /* --- Bedeutungsfarben: die Werte des Kits, dieselbe Bedeutung ------ */
+  --green: #3dd68c;
+  --green-soft: #63e0a5;
+  --amber: #ffd166;
+  --red: #f0555f;
+  --red-soft: #ff8189;
+
+  /* „Bedienbar/aktiv" IST hier der Akzent — das ist der Kern der Haut.
+     --blue traegt in theme.css genau diese Bedeutung (Regel 3), deshalb
+     wandert es mit und nicht etwa auf ein anderes Blau. */
+  --blue: var(--akzent);
+  --blue-soft: var(--akzent-3);
+
+  /* Modul-Kennfarben bleiben eigenstaendig: sie sagen „welches Modul",
+     nicht „bedienbar". Zwoelf Kacheln in einer Akzentfarbe waeren wieder
+     zwoelf gleiche Kacheln. */
+  --violet: #a78bfa;
+  --pink: #f472b6;
+  --pink-soft: #f9a8d4;
+
+  /* Auf dem Verlauf steht heller Text: die Akzent-Engine haelt jede Farbe
+     in einem Helligkeitsfenster, auf dem Weiss lesbar bleibt. */
+  --on-accent: #ffffff;
+
+  /* --- Form: das Kit rundet deutlich staerker ------------------------ */
+  --r-xs: 7px;
+  --r-sm: 9px;
+  --r: 12px;
+  --radius: var(--r);
+
+  --shadow: 0 18px 40px -22px rgba(0, 0, 0, 0.9);
+
+  /* --- Bewegung: EINE Kurve fuer alles, easeOutQuart ----------------- */
+  --t: 160ms;
+  --t-weg: 260ms;
+  --t-wachsen: 500ms;
+  --kurve: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease: var(--kurve);
+  --focus: 0 0 0 3px color-mix(in oklab, var(--akzent) 35%, transparent);
+
+  /* --- Schriften ---------------------------------------------------- */
+  --nx-font-sans: "Inter Variable", "Inter", system-ui, -apple-system, sans-serif;
+  --nx-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --mono: var(--nx-font-mono);
+}
+
+/* ── 2. Grundflaeche ───────────────────────────────────────────────── */
+
+html[data-haut="nexus"] body {
+  font-family: var(--nx-font-sans);
+  letter-spacing: -0.005em;
+}
+
+html[data-haut="nexus"] ::selection {
+  background: color-mix(in oklab, var(--akzent) 35%, transparent);
+  color: #fff;
+}
+
+/* Fokus: das Kit legt einen Ring AUSSEN an, statt die Kante einzufaerben. */
+html[data-haut="nexus"] :focus-visible {
+  outline: 2px solid var(--akzent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* Bildlaufleisten in Flaechenfarbe — sonst sitzt ein heller Balken neben
+   einer dunklen Schiene. */
+html[data-haut="nexus"] * {
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+/* Zahlen in der Mono des Kits. Regel 4 von theme.css sagt, Zahlen sind das
+   Wichtigste auf der Seite; eine echte Tabellenschrift bedient das besser
+   als die Ziffern der Textschrift. */
+html[data-haut="nexus"] .clock-time,
+html[data-haut="nexus"] .punch-timer,
+html[data-haut="nexus"] .tile-num,
+html[data-haut="nexus"] .kpi-num,
+html[data-haut="nexus"] .hh-wert,
+html[data-haut="nexus"] .hh-betrag,
+html[data-haut="nexus"] .balken-wert,
+html[data-haut="nexus"] .zahl-betrag,
+html[data-haut="nexus"] .buch-betrag,
+html[data-haut="nexus"] .rechner-anzeige,
+html[data-haut="nexus"] .streifen-wert,
+html[data-haut="nexus"] .proj-zeit,
+html[data-haut="nexus"] .wm-val,
+html[data-haut="nexus"] .hero-weather-temp,
+html[data-haut="nexus"] .weather-hero-temp {
+  font-family: var(--nx-font-mono);
+  letter-spacing: -0.02em;
+}
+
+/* Versalien-Beschriftungen werden im Kit zu Mono-Kickern. */
+html[data-haut="nexus"] .tile-lbl,
+html[data-haut="nexus"] .eyebrow,
+html[data-haut="nexus"] .section-title,
+html[data-haut="nexus"] .data-table th {
+  font-family: var(--nx-font-mono);
+  font-weight: 600;
+}
+
+/* ── 3. Inhalt im Nexus-Rahmen ─────────────────────────────────────────
+   Der Rahmen kommt aus dem Kit (`.nx-top` / `.nx-rail` / `.nx-content`).
+   Was CTRL·DECK darin erwartet, lieferte bisher `.main`: der eine Scroller
+   der App, Luft zwischen den Abschnitten, und ein Fussbereich, der unten
+   klebt. Das uebernimmt hier `.nx-wrap`. */
+
+/* Die feste Grenze des Kits (`width: min(1440px, 100%)`) wird hier durch die
+   einstellbare ersetzt. Auf einem 3440px-Schirm blieben bei 1440px tausend
+   Pixel links und rechts leer — auf einer Kachelwand, deren ganzer Zweck es
+   ist, viel auf einmal zu zeigen. Vorgabe ist deshalb `none`, also die volle
+   Breite; enger stellt man es unter „Aussehen“. */
+.haut-nexus .nx-wrap {
+  gap: 30px;
+  min-height: 100%;
+  width: 100%;
+  max-width: var(--inhalt-breite, none);
+  padding: 26px clamp(18px, 3vw, 34px) 22px;
+}
+
+.haut-nexus .foot {
+  margin-top: auto;
+  border-top: 1px solid var(--line);
+}
+.haut-nexus .foot a { color: var(--text-dim); }
+.haut-nexus .foot a:hover { color: var(--akzent); }
+
+/* ── 4. Knoepfe ────────────────────────────────────────────────────────
+   Der Hauptknopf traegt den Marken-Verlauf. Das ist im Kit ein Ereignis,
+   kein Grundzustand: deshalb NUR `.btn` (die eine bejahende Handlung) und
+   nicht der Geisterknopf daneben. */
+
+html[data-haut="nexus"] .btn {
+  border-radius: var(--r-sm);
+  padding: 9px 16px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--grad);
+  border: 1px solid transparent;
+  box-shadow: 0 6px 18px -10px var(--akzent-glow);
+  transition:
+    transform var(--t) var(--kurve),
+    box-shadow var(--t) var(--kurve),
+    filter var(--t) var(--kurve),
+    background var(--t) var(--kurve),
+    border-color var(--t) var(--kurve),
+    color var(--t) var(--kurve);
+}
+/* Kein Farbumschlag, sondern eine Spur mehr Licht und Hoehe (Kit-Regel 5). */
+html[data-haut="nexus"] .btn:hover:not(:disabled) {
+  background: var(--grad);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px -12px var(--akzent-glow);
+}
+html[data-haut="nexus"] .btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.985);
+}
+/* Ein gesperrter Knopf verliert den Verlauf ganz, statt ihn blass zu zeigen.
+   Ein abgedunkelter Verlauf sieht aus wie ein Verlauf im Schatten — also
+   weiter wie eine Einladung; eine flache Flaeche sagt „jetzt nicht". */
+html[data-haut="nexus"] .btn:disabled {
+  background: var(--surface-2);
+  color: var(--text-faint);
+  border-color: var(--line);
+  box-shadow: none;
+  opacity: 1;
+}
+
+html[data-haut="nexus"] .btn.ghost {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--line);
+  box-shadow: none;
+}
+html[data-haut="nexus"] .btn.ghost:hover {
+  background: var(--surface-2);
+  border-color: var(--akzent);
+  filter: none;
+}
+html[data-haut="nexus"] .btn.small { padding: 6px 12px; }
+
+/* Loeschen bleibt rot und bekommt KEINEN Verlauf: der Verlauf ist die
+   Einladung, und dazu laedt hier nichts ein. */
+html[data-haut="nexus"] .btn-danger,
+html[data-haut="nexus"] .btn.btn-danger {
+  background: color-mix(in oklab, var(--red) 16%, transparent);
+  color: #ffb4b9;
+  border-color: color-mix(in oklab, var(--red) 55%, transparent);
+  box-shadow: none;
+}
+html[data-haut="nexus"] .btn-danger:hover,
+html[data-haut="nexus"] .btn.btn-danger:hover {
+  background: color-mix(in oklab, var(--red) 26%, transparent);
+  filter: none;
+}
+
+html[data-haut="nexus"] .icon-btn {
+  width: 30px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border-color: var(--line);
+}
+html[data-haut="nexus"] .icon-btn:hover {
+  background: var(--surface-2);
+  border-color: var(--akzent);
+  color: var(--text);
+}
+
+/* ── 5. Karten ─────────────────────────────────────────────────────────
+   theme.css setzt die Modul-Kennfarbe als 3px-Streifen an die linke Kante.
+   Das Kit legt sie als Haarlinie OBEN an und hebt die Karte beim Ueberfahren
+   um zwei Pixel — dieselbe Information, andere Handschrift. */
+
+html[data-haut="nexus"] .card {
+  padding: 18px 20px;
+  background: var(--surface);
+  border-radius: var(--r);
+  transition:
+    transform var(--t) var(--kurve),
+    border-color var(--t) var(--kurve),
+    background var(--t) var(--kurve),
+    box-shadow var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .card::before {
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: auto;
+  width: auto;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--accent, var(--line-strong)),
+    color-mix(in oklab, var(--accent, var(--line-strong)) 25%, transparent)
+  );
+}
+html[data-haut="nexus"] .card:hover {
+  transform: translateY(-2px);
+  background: var(--surface-2);
+  border-color: color-mix(in oklab, var(--accent, var(--akzent)) 45%, var(--line));
+  box-shadow: var(--shadow);
+}
+html[data-haut="nexus"] .card:focus-within {
+  border-color: var(--akzent);
+  box-shadow: var(--focus);
+}
+/* Eine Karte, die gerade gezogen wird, hebt nicht zusaetzlich ab —
+   sonst schweben beim Umsortieren zwei Dinge gleichzeitig. */
+html[data-haut="nexus"] .card.zieht { transform: none; box-shadow: none; }
+
+html[data-haut="nexus"] .card-title {
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+html[data-haut="nexus"] .card.add { border-style: dashed; }
+html[data-haut="nexus"] .card.add:hover { transform: none; box-shadow: none; }
+
+/* Panels und Formularkaesten ziehen mit — sie sind dieselbe Flaeche. */
+html[data-haut="nexus"] .panel,
+html[data-haut="nexus"] .entry-form,
+html[data-haut="nexus"] .table-wrap {
+  border-radius: var(--r);
+}
+
+/* ── 6. Etiketten ──────────────────────────────────────────────────────
+   Aus dem Rechteck in Versalien wird die Pille des Kits. */
+
+html[data-haut="nexus"] .badge {
+  border-radius: 999px;
+  padding: 3px 9px;
+  letter-spacing: 0.06em;
+  background: var(--surface-2);
+}
+html[data-haut="nexus"] .badge.open {
+  color: var(--akzent);
+  border-color: color-mix(in oklab, var(--akzent) 45%, transparent);
+  background: var(--akzent-soft);
+}
+html[data-haut="nexus"] .nav-badge,
+html[data-haut="nexus"] .mv-zaehler,
+html[data-haut="nexus"] .soon {
+  border-radius: 999px;
+}
+
+/* ── 7. Reiter und Segmentwahl ────────────────────────────────────────
+   Im Kit ist der aktive Reiter kein unterstrichener Text, sondern eine
+   angehobene Flaeche mit Innenkante. */
+
+html[data-haut="nexus"] .tabs {
+  gap: 4px;
+  padding-bottom: 6px;
+}
+html[data-haut="nexus"] .tab {
+  border-radius: var(--r-sm);
+  border-bottom: none;
+  margin-bottom: 0;
+  padding: 7px 13px;
+  font-weight: 600;
+  transition: background var(--t) var(--kurve), color var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .tab:hover { background: var(--surface-2); }
+html[data-haut="nexus"] .tab.active {
+  color: var(--text);
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+html[data-haut="nexus"] .zeitraum-wahl,
+html[data-haut="nexus"] .art-wahl,
+html[data-haut="nexus"] .ansicht-wahl {
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: var(--bg-sunk);
+}
+html[data-haut="nexus"] .seg-btn { border-radius: 7px; font-weight: 600; }
+html[data-haut="nexus"] .seg-btn.aktiv {
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+/* ── 8. Felder ────────────────────────────────────────────────────────
+   Die Sammelliste stammt aus theme.css („ein Feldbild fuer die ganze App")
+   und muss hier genauso vollstaendig stehen — sonst rundet die eine Haelfte
+   der Felder und die andere nicht. */
+
+html[data-haut="nexus"] .entry-form input,
+html[data-haut="nexus"] .entry-form select,
+html[data-haut="nexus"] .filter-bar input,
+html[data-haut="nexus"] .suchfeld input,
+html[data-haut="nexus"] .report-range input,
+html[data-haut="nexus"] .meter-modal-fields input,
+html[data-haut="nexus"] .proj-add input,
+html[data-haut="nexus"] .frist-eingabe input,
+html[data-haut="nexus"] .frist-eingabe select,
+html[data-haut="nexus"] .proj-select,
+html[data-haut="nexus"] .rechner-feld,
+html[data-haut="nexus"] .proj-name-edit,
+html[data-haut="nexus"] .extern-pfad,
+html[data-haut="nexus"] .fz-termine-felder input,
+html[data-haut="nexus"] textarea {
+  border-radius: var(--r-sm);
+  background: var(--bg-sunk);
+  padding: 9px 12px;
+  transition: border-color var(--t) var(--kurve), box-shadow var(--t) var(--kurve);
+}
+
+/* Fokus am Feld: Kante PLUS weicher Ring statt harter Outline — der Ring
+   sitzt auf der Rundung, eine Outline schnitte die Ecken ab. */
+html[data-haut="nexus"] .entry-form input:focus-visible,
+html[data-haut="nexus"] .entry-form select:focus-visible,
+html[data-haut="nexus"] .filter-bar input:focus-visible,
+html[data-haut="nexus"] .suchfeld input:focus-visible,
+html[data-haut="nexus"] .report-range input:focus-visible,
+html[data-haut="nexus"] .meter-modal-fields input:focus-visible,
+html[data-haut="nexus"] .proj-add input:focus-visible,
+html[data-haut="nexus"] .frist-eingabe input:focus-visible,
+html[data-haut="nexus"] .frist-eingabe select:focus-visible,
+html[data-haut="nexus"] .proj-select:focus-visible,
+html[data-haut="nexus"] .rechner-feld:focus-visible,
+html[data-haut="nexus"] .proj-name-edit:focus-visible,
+html[data-haut="nexus"] .extern-pfad:focus-visible,
+html[data-haut="nexus"] .fz-termine-felder input:focus-visible {
+  outline: none;
+  border-color: var(--akzent);
+  box-shadow: var(--focus);
+}
+
+html[data-haut="nexus"] input[type="range"] { accent-color: var(--akzent); }
+html[data-haut="nexus"] .check-lbl input { accent-color: var(--akzent); }
+
+/* ── 9. Tabellen ──────────────────────────────────────────────────────── */
+
+html[data-haut="nexus"] .data-table th {
+  background: var(--surface-2);
+  border-bottom-color: var(--line);
+  letter-spacing: 0.08em;
+}
+html[data-haut="nexus"] .data-table tbody tr {
+  transition: background var(--t) var(--kurve);
+}
+
+/* ── 10. Schwebendes ──────────────────────────────────────────────────
+   Dialog und Toast bekommen die Verlaufskante des Kits am oberen Rand:
+   ein feiner Strich, der sagt „das hier liegt ueber allem". */
+
+html[data-haut="nexus"] .modal {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+}
+html[data-haut="nexus"] .modal::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: var(--grad);
+}
+html[data-haut="nexus"] .modal-overlay {
+  background: rgba(6, 7, 10, 0.72);
+  backdrop-filter: blur(8px);
+}
+html[data-haut="nexus"] .toast {
+  border-radius: var(--r);
+  border-left-color: var(--akzent);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+/* ── 11. Kopfbereich und Abschnitte ──────────────────────────────────── */
+
+html[data-haut="nexus"] .welcome,
+html[data-haut="nexus"] .module-h1 {
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+/* Das Verlaufswort — im Kit `.nx-h1 em`, hier der Name in der Begruessung.
+   theme.css hat den Verlaufstext 2026 absichtlich abgeschafft (Regel 3);
+   in DIESER Haut ist er das Markenzeichen und steht an genau einer Stelle. */
+html[data-haut="nexus"] .grad {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 800;
+}
+
+html[data-haut="nexus"] .module-h1-ico { color: var(--accent, var(--akzent)); }
+html[data-haut="nexus"] .section-title { letter-spacing: 0.1em; }
+html[data-haut="nexus"] .back-link:hover { color: var(--akzent); }
+
+/* Die Uhr im Kopf ist im Kit eine eigene kleine Flaeche. */
+html[data-haut="nexus"] .clock {
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+/* ── 12. Kleinteile ──────────────────────────────────────────────────── */
+
+/* Der Zustandspunkt leuchtet leicht — er ist im Kit das einzige Licht, das
+   eine Aussage traegt. Das Wort daneben bleibt trotzdem stehen (theme.css:
+   Farbe ist nie der einzige Traeger). */
+html[data-haut="nexus"] .dot.ok { box-shadow: 0 0 10px -1px var(--green); }
+html[data-haut="nexus"] .dot.err { box-shadow: 0 0 10px -1px var(--red); }
+
+html[data-haut="nexus"] .empty { border-radius: var(--r); }
+
+/* Balken und Spuren runden mit — im Kit sind sie Pillen. */
+html[data-haut="nexus"] .balken-spur,
+html[data-haut="nexus"] .balken-fuell { border-radius: 999px; }
+
+/* Das Modul GTA VI bleibt absichtlich aussen vor: es ist die eine erlaubte
+   Ausnahme vom Hausstil (siehe `modules/gta6/gta6.css`), haengt an eigenen
+   Farben und ueberschreibt keine Variable. Eine zweite Haut darueber machte
+   daraus einen dritten Look. Es erbt hier nur Flaeche und Kante. */
+
+/* ── 13. Der Rahmen ───────────────────────────────────────────────────
+   Was `RahmenNexus.tsx` an den Klassen des Kits braucht und was das Kit
+   nicht mitbringt, weil es dort keine App mit einklappbarer Schiene gibt. */
+
+/* Das Kit legt drei Reihen an (Kopf, Brotkrumen, Rumpf). CTRL·DECK hat
+   keine Brotkrumenzeile — ohne diese Zeile faende der Rumpf die Reihe
+   `auto` statt `1fr` und die Seite hoerte auf halber Hoehe auf. */
+.haut-nexus.nx-app { grid-template-rows: auto minmax(0, 1fr); }
+
+/* Die Marke ist hier ein Knopf und kein Link — sie fuehrt zur Uebersicht,
+   ohne die Seite zu wechseln. */
+.haut-nexus .nx-brand {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.haut-nexus .nx-top-left { display: flex; align-items: center; min-width: 0; }
+
+/* Der Profilknopf sitzt in der Kopfzeile. Sein Zahnrad-Ring braucht dort
+   etwas Luft, sonst klebt er an der Zustandspille. */
+.haut-nexus .nx-top-right .profil-knopf { margin-left: 2px; }
+
+/* Geplante Module: sichtbar, aber kein Ziel. */
+.haut-nexus .nx-rail-item.is-geplant {
+  color: var(--text-faint);
+  cursor: default;
+}
+.haut-nexus .nx-rail-item.is-geplant:hover { background: transparent; }
+.haut-nexus .nx-rail-item.is-geplant > svg:first-child { opacity: 0.6; }
+.haut-nexus .nx-rail-ext {
+  font-family: var(--nx-font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Die Schiene im Kopf: Abschnittsname und Einklapp-Knopf in einer Zeile. */
+.haut-nexus .nx-rail-head .nx-rail-sec { margin: 0; }
+
+/* --- Eingeklappt: nur noch Symbole --------------------------------------
+   Der Zaehler wandert dabei an die Ecke des Symbols. Neben dem Symbol
+   waere kein Platz, und weglassen geht nicht: er ist der Grund, warum man
+   ueberhaupt hinsieht. */
+.haut-nexus .nx-body.is-narrow { grid-template-columns: 62px minmax(0, 1fr); }
+.haut-nexus .is-narrow .nx-rail { padding: 14px 8px; }
+.haut-nexus .is-narrow .nx-rail-head { justify-content: center; padding: 0 0 6px; }
+.haut-nexus .is-narrow .nx-rail-sec,
+.haut-nexus .is-narrow .nx-rail-foot,
+.haut-nexus .is-narrow .nx-rail-ext { display: none; }
+.haut-nexus .is-narrow .nx-rail-item {
+  position: relative;
+  justify-content: center;
+  padding: 9px 0;
+}
+.haut-nexus .is-narrow .nx-rail-item > span:not(.nx-badge) { display: none; }
+.haut-nexus .is-narrow .nx-rail-item > span.nx-badge {
+  position: absolute;
+  top: 2px;
+  right: 7px;
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 0.6rem;
+}
+
+/* --- Schmale Fenster ---------------------------------------------------
+   Das Kit blendet die Schiene unter 980px ganz aus und ersetzt sie durch
+   eine Reiterleiste am unteren Rand (`.nx-mtabs`) — vier Ziele, mehr nicht.
+   CTRL·DECK hat zwoelf Module und mehrere Werkzeuge; vier davon auszuwaehlen
+   hiesse, den Rest unerreichbar zu machen. Deshalb bleibt die Schiene und
+   klappt stattdessen auf Symbolbreite ein.
+
+   Sonst faellt erst die Zustandspille weg (sie ist eine Auskunft, kein
+   Bedienteil), zuletzt das Wort neben der Lupe. */
+@media (max-width: 980px) {
+  .haut-nexus .nx-body {
+    grid-template-columns: 62px minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+  .haut-nexus .nx-rail { display: flex; }
+  .haut-nexus .nx-rail-sec,
+  .haut-nexus .nx-rail-foot,
+  .haut-nexus .nx-rail-ext { display: none; }
+  .haut-nexus .nx-rail-head { justify-content: center; padding: 0 0 6px; }
+  .haut-nexus .nx-rail-item { position: relative; justify-content: center; padding: 9px 0; }
+  .haut-nexus .nx-rail-item > span:not(.nx-badge) { display: none; }
+  .haut-nexus .nx-rail-item > span.nx-badge {
+    position: absolute; top: 2px; right: 7px; min-width: 16px; padding: 0 4px; font-size: 0.6rem;
+  }
+}
+@media (max-width: 760px) {
+  .haut-nexus .nx-status { display: none; }
+}
+@media (max-width: 560px) {
+  .haut-nexus .nx-searchbtn { font-size: 0; gap: 0; padding: 0 9px; }
+  .haut-nexus .nx-searchbtn .nx-kbd { display: none; }
+}

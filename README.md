@@ -243,6 +243,7 @@ ctrl-deck/
 │   └─ src/modules/   je Feature ein Backend-Modul
 ├─ web/      React + Vite (TypeScript)
 │   ├─ src/core/      Dashboard-Gerüst, Modul-Registry, Startseite
+│   ├─ src/haut/      das zweite Aussehen („Nexus"), abschaltbar
 │   └─ src/modules/   je Feature ein Frontend-Modul
 └─ data/     ctrl-deck.db  +  backups/  +  exports/
              +  tresor/ und dokumente/  (verschlüsselte Anhänge)
@@ -275,6 +276,13 @@ dort, wo sie etwas bedeutet, Bewegung nur, wo sie eine Frage beantwortet. Die
 verbindlichen Regeln stehen als Kommentarblock oben in
 `web/src/core/theme.css`. Wer beiträgt: bitte dort zuerst lesen.
 
+Daneben liegt ein **zweites Aussehen**: „Nexus", unter
+**Einstellungen → Aussehen** umschaltbar. Gestapelte Flächen, runde Ecken,
+eine frei wählbare Akzentfarbe und eine Icon-Schiene statt der Seitenleiste.
+Es ist eine reine Zutat — alles hängt unter `html[data-haut="nexus"]` in
+`web/src/haut/`, `theme.css` bleibt unberührt, und zurückgeschaltet steht die
+alte Oberfläche unverändert da. Die Vorgabe bleibt die Instrumententafel.
+
 ## Technik
 
 | Schicht | Technik |
@@ -303,3 +311,16 @@ Kurz gesagt: Du darfst das Programm benutzen, ändern und weitergeben. Wenn du
 eine geänderte Fassung als Dienst über ein Netzwerk anbietest, musst du deinen
 Quelltext den Nutzern dieses Dienstes zugänglich machen. Wer es einfach nur zu
 Hause laufen lässt, muss gar nichts tun.
+
+### Eine Zusatzbedingung — nur für `web/src/haut/nexus/`
+
+Die Design-Ebene der Haut „Nexus" (`nexus.css`) stammt aus einem eigenen Werk
+desselben Urhebers. Sie steht hier ebenfalls unter der AGPL, ergänzt um eine
+Zusatzbedingung nach **§7(b) und §7(c)**: Der Urhebervermerk muss bei jeder
+Weitergabe erhalten bleiben, und geänderte Fassungen sind als geändert zu
+kennzeichnen. Mehr nicht — Weitergabe, Änderung und kommerzielle Nutzung
+bleiben frei. Der Wortlaut steht in
+[`web/src/haut/nexus/LIZENZ-nexus-ui-kit.txt`](web/src/haut/nexus/LIZENZ-nexus-ui-kit.txt).
+
+Das eigenständige Nexus UI Kit außerhalb dieses Projekts ist davon nicht
+berührt und steht nicht unter der AGPL.

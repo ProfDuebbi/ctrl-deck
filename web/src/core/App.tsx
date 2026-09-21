@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type Me } from "./api";
-import { dashboardModules, plannedModules, type DashboardModule } from "./modules";
+import { dashboardModules, plannedModules } from "./modules";
 import { useModuleOrder } from "./moduleOrder";
 import { ModuleGrid } from "./ModuleGrid";
 import { HeroWeather } from "./OverviewWeather";
@@ -17,34 +17,9 @@ import { useKopf } from "./kopf";
 import { ProfilKnopf } from "./ProfilKnopf";
 import { Icon } from "./Icon";
 import { mitUebergang, uebergangsName } from "./bewegung";
-
-/** Rendert das Live-Badge eines Moduls (ruft den Hook unbedingt auf). */
-function NavBadge({ useCount }: { useCount: () => number }) {
-  const count = useCount();
-  if (count <= 0) return null;
-  // Die Zahl allein ist ohne Kontext; das versteckte Wort macht sie vorlesbar.
-  return (
-    <span className="nav-badge">
-      {count}
-      <span className="sr-only"> fällig</span>
-    </span>
-  );
-}
-
-/** Ein Sidebar-Navigationseintrag für ein Modul (inkl. optionalem Badge). */
-function NavItem({ m, active, onClick }: { m: DashboardModule; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      className={`nav-item ${active ? "active" : ""}`}
-      onClick={onClick}
-      title={m.title}
-      aria-current={active ? "page" : undefined}
-    >
-      <span className="nav-ico"><Icon name={m.icon} /></span> <span className="nav-label">{m.title}</span>
-      {m.useBadgeCount && <NavBadge useCount={m.useBadgeCount} />}
-    </button>
-  );
-}
+import { RahmenKlassisch, type RahmenPunkt } from "./Rahmen";
+import { RahmenNexus } from "../haut/nexus/RahmenNexus";
+import { useHaut } from "../haut/haut";
 
 function useClock() {
   const [now, setNow] = useState(() => new Date());
@@ -223,88 +198,126 @@ export function App() {
   const dateLine = datumsZeile(now);
   const active = module.find((m) => m.id === activeId) ?? null;
 
+  /**
+   * Die Haut bestimmt nur den RAHMEN — Marke, Navigation, Werkzeuge. Alles
+   * darunter (Kopfbereich, Kacheln, Module) ist in beiden dasselbe und wird
+   * von `haut/nexus/bruecke.css` umgefaerbt, nicht hier verzweigt.
+   */
+  const { haut } = useHaut();
+  const Rahmen = haut === "nexus" ? RahmenNexus : RahmenKlassisch;
+
+  /**
+   * Wo der Profilknopf steht, ist der eine Unterschied, der sich nicht mit
+   * CSS erledigen laesst: die Instrumententafel setzt ihn neben jede
+   * Ueberschrift (auf der Uebersicht also neben den eigenen Namen), die
+   * Nexus-Haut hat dafuer den festen Platz oben rechts. Zweimal auf einem
+   * Bildschirm waere er zweimal derselbe Knopf.
+   */
+  const profilImKopf = haut === "nexus" ? null : profilKnopf;
+
+  // Die Uebersicht steht als erster Punkt in derselben Liste wie die Module:
+  // fuer den Rahmen ist sie ein Ziel wie jedes andere.
+  const navPunkte: RahmenPunkt[] = [
+    {
+      id: "uebersicht",
+      titel: "Übersicht",
+      icon: "uebersicht",
+      // `!showChangelog` gehoert dazu: sonst stehen „Übersicht" und „Was ist
+      // neu" gleichzeitig als aktuelle Seite da.
+      aktiv: activeId === null && !showProfil && !showEinstellungen && !showChangelog,
+      onClick: () => gehZu(null),
+    },
+    ...module.map((m) => ({
+      id: m.id,
+      titel: m.title,
+      icon: m.icon,
+      aktiv: activeId === m.id && !showProfil && !showEinstellungen && !showChangelog,
+      onClick: () => gehZu(m.id),
+      useZaehler: m.useBadgeCount,
+    })),
+  ];
+
+  const geplantPunkte: RahmenPunkt[] = plannedModules.map((m) => ({
+    id: m.title,
+    titel: m.title,
+    icon: m.icon,
+    notiz: "bald",
+    hinweis: `${m.title} (bald)`,
+  }));
+
+  const suchePunkt: RahmenPunkt = {
+    id: "suche",
+    titel: "Suchen",
+    icon: "suchen",
+    taste: "Strg K",
+    hinweis: "Suchen (Strg+K)",
+    onClick: () => setShowSuche(true),
+  };
+
+  const werkzeuge: RahmenPunkt[] = [
+    {
+      id: "backups",
+      titel: "Backups",
+      icon: "backup",
+      hinweis: "Backups sichern & wiederherstellen",
+      onClick: () => setShowBackups(true),
+    },
+    {
+      id: "changelog",
+      titel: "Was ist neu",
+      icon: "glocke",
+      hinweis: "Was sich in CTRL·DECK geändert hat",
+      aktiv: showChangelog,
+      zaehler: neuImChangelog,
+      zaehlerWort: "neue Einträge",
+      onClick: () => mitUebergang(() => {
+        setShowProfil(false); setShowEinstellungen(false); setActiveId(null); setShowChangelog(true);
+      }),
+    },
+    {
+      id: "abmelden",
+      titel: "Abmelden",
+      icon: "schloss",
+      hinweis: "Abmelden — beim nächsten Mal wieder mit Passwort",
+      onClick: abmelden,
+    },
+  ];
+
+  const dialoge = (
+    <>
+      {showSuche && (
+        <Suche
+          module={module}
+          onOeffnen={gehZu}
+          onClose={() => setShowSuche(false)}
+        />
+      )}
+      {showBackups && <BackupsModal onClose={() => setShowBackups(false)} />}
+      {showModule && (
+        <ModuleVerwaltung
+          module={alleSortiert}
+          versteckt={versteckt}
+          umschalten={umschalten}
+          onClose={() => setShowModule(false)}
+        />
+      )}
+    </>
+  );
+
   return (
-    <div className={`app ${collapsed ? "collapsed" : ""}`}>
-      <a className="skip-link" href="#inhalt">Zum Inhalt springen</a>
-
-      <aside className="sidebar">
-        <div className="sidebar-head">
-          <button className="brand" onClick={() => gehZu(null)}>
-            <img className="brand-logo" src="/ctrl_logo.png" alt="" />
-            <span className="brand-name">{me.appName}</span>
-            <span className="sr-only">— zur Übersicht</span>
-          </button>
-          <button
-            className="sidebar-toggle"
-            onClick={() => setCollapsed((c) => !c)}
-            title={collapsed ? "Menü ausklappen" : "Menü einklappen"}
-            aria-label={collapsed ? "Menü ausklappen" : "Menü einklappen"}
-            aria-expanded={!collapsed}
-          >
-            {collapsed ? "»" : "«"}
-          </button>
-        </div>
-
-        <nav className="nav" aria-label="Module">
-          <button
-            className={`nav-item ${activeId === null && !showProfil && !showEinstellungen ? "active" : ""}`}
-            onClick={() => gehZu(null)}
-            title="Übersicht"
-            aria-current={activeId === null && !showProfil && !showEinstellungen ? "page" : undefined}
-          >
-            <span className="nav-ico"><Icon name="uebersicht" /></span> <span className="nav-label">Übersicht</span>
-          </button>
-          {module.map((m) => (
-            <NavItem key={m.id} m={m} active={activeId === m.id && !showProfil && !showEinstellungen} onClick={() => gehZu(m.id)} />
-          ))}
-          {plannedModules.map((m) => (
-            <span className="nav-item disabled" key={m.title} title={`${m.title} (bald)`}>
-              <span className="nav-ico"><Icon name={m.icon} /></span> <span className="nav-label">{m.title}</span>
-              <span className="soon">bald</span>
-            </span>
-          ))}
-        </nav>
-
-        <div className="sidebar-tools">
-          <button className="backup-btn" onClick={() => setShowSuche(true)} title="Suchen (Strg+K)">
-            <span className="nav-ico"><Icon name="suchen" /></span> <span className="nav-label">Suchen</span>
-            <kbd className="nav-kbd">Strg K</kbd>
-          </button>
-          <button className="backup-btn" onClick={() => setShowBackups(true)} title="Backups sichern & wiederherstellen">
-            <span className="nav-ico"><Icon name="backup" /></span> <span className="nav-label">Backups</span>
-          </button>
-          <button
-            className={`backup-btn ${showChangelog ? "active" : ""}`}
-            onClick={() => mitUebergang(() => {
-              setShowProfil(false); setShowEinstellungen(false); setActiveId(null); setShowChangelog(true);
-            })}
-            title="Was sich in CTRL·DECK geändert hat"
-            aria-current={showChangelog ? "page" : undefined}
-          >
-            <span className="nav-ico"><Icon name="glocke" /></span>{" "}
-            <span className="nav-label">Was ist neu</span>
-            {neuImChangelog > 0 && (
-              <span className="nav-badge" title={`${neuImChangelog} neue Einträge`}>
-                {neuImChangelog}
-                <span className="sr-only"> neue Einträge</span>
-              </span>
-            )}
-          </button>
-          <button className="backup-btn" onClick={abmelden} title="Abmelden — beim nächsten Mal wieder mit Passwort">
-            <span className="nav-ico"><Icon name="schloss" /></span> <span className="nav-label">Abmelden</span>
-          </button>
-          {/* Der farbige Punkt wiederholt nur, was daneben als Wort steht —
-              Farbe ist hier nie der einzige Traeger der Information. */}
-          <div className="status" role="status">
-            <span className={`dot ${online ? "ok" : online === false ? "err" : "wait"}`} aria-hidden="true" />
-            <span className="nav-label">
-              {online === null ? "verbinde…" : online ? "Backend verbunden" : "Backend offline"}
-            </span>
-          </div>
-        </div>
-      </aside>
-
-      <main className="main" id="inhalt">
+    <Rahmen
+      appName={me.appName}
+      onMarke={() => gehZu(null)}
+      module={navPunkte}
+      geplant={geplantPunkte}
+      suche={suchePunkt}
+      werkzeuge={werkzeuge}
+      online={online}
+      eingeklappt={collapsed}
+      onEingeklappt={setCollapsed}
+      profil={profilKnopf}
+      ueberlagerung={dialoge}
+    >
         {showChangelog ? (
           <>
             <header className="hero module-hero">
@@ -401,7 +414,7 @@ export function App() {
                     </span>{" "}
                     {active.title}
                   </h1>
-                  {profilKnopf}
+                  {profilImKopf}
                 </div>
                 <p className="subtitle">{active.description}</p>
               </div>
@@ -448,7 +461,7 @@ export function App() {
                     {greeting(now.getHours())}
                     {me.name && <>, <span className="grad">{me.name}</span></>}
                   </h1>
-                  {profilKnopf}
+                  {profilImKopf}
                 </div>
                 <p className="subtitle">Dein privates Control-Dashboard. Alles lokal, alles unter Kontrolle.</p>
               </div>
@@ -518,24 +531,6 @@ export function App() {
             Quelltext (AGPL-3.0)
           </a>
         </footer>
-      </main>
-
-      {showSuche && (
-        <Suche
-          module={module}
-          onOeffnen={gehZu}
-          onClose={() => setShowSuche(false)}
-        />
-      )}
-      {showBackups && <BackupsModal onClose={() => setShowBackups(false)} />}
-      {showModule && (
-        <ModuleVerwaltung
-          module={alleSortiert}
-          versteckt={versteckt}
-          umschalten={umschalten}
-          onClose={() => setShowModule(false)}
-        />
-      )}
-    </div>
+    </Rahmen>
   );
 }

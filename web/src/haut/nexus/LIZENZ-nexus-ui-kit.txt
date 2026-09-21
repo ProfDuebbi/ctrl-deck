@@ -1,0 +1,48 @@
+Nexus UI Kit · v1.0 — die Design-Ebene der Haut „Nexus"
+Copyright (C) 2026 ProfDuebbi
+
+Das Paket enthaelt ausschliesslich Gestaltung: Farben, Typografie, Abstaende,
+Bausteine und Bewegungsregeln. Kein Projektcode, keine Inhalte, keine Daten.
+
+
+DIESE KOPIE
+
+Sie ist Teil von CTRL·DECK und steht unter derselben Lizenz wie das uebrige
+Programm: GNU Affero General Public License, Version 3 oder spaeter. Der volle
+Lizenztext steht in der Datei LICENSE im Projektordner.
+
+Du darfst sie also benutzen, aendern und weitergeben — unter den Bedingungen
+der AGPL.
+
+
+ZUSATZBEDINGUNG nach AGPL-3.0 §7(b) und §7(c)
+
+  1. Der Urhebervermerk „Copyright (C) 2026 ProfDuebbi" muss bei jeder
+     Weitergabe erhalten bleiben — in unveraenderten wie in geaenderten
+     Fassungen, in der Datei `nexus.css` wie in dieser Datei.
+
+  2. Geaenderte Fassungen sind als geaendert zu kennzeichnen, sodass sie
+     nicht fuer das Original gehalten werden.
+
+Mehr wird nicht verlangt. Insbesondere ist das KEINE Einschraenkung der
+Weitergabe, der Aenderung oder der kommerziellen Nutzung — solche Klauseln
+waeren unter der AGPL ohnehin unwirksam (§7, letzter Absatz).
+
+
+DAS EIGENSTAENDIGE KIT
+
+Das Nexus UI Kit ausserhalb dieses Projekts ist ein eigenes Werk desselben
+Urhebers und steht NICHT unter der AGPL. Wer es direkt bezieht, erhaelt es zu
+den Bedingungen des Urhebers. Die Freigabe hier gilt nur fuer die Kopie, die
+mit CTRL·DECK ausgeliefert wird.
+
+
+SCHRIFTEN
+
+Die benutzten Schriften sind NICHT Teil dieses Pakets:
+  Inter           - SIL Open Font License 1.1 - https://rsms.me/inter/
+  JetBrains Mono  - SIL Open Font License 1.1 - https://jetbrains.com/lp/mono/
+Beide sind frei nutzbar, es gelten ihre eigenen Lizenzen.
+
+
+Ohne Gewaehr: Die Dateien werden bereitgestellt, wie sie sind.
