@@ -1,0 +1,75 @@
+/* ======================================================================
+   HAUT „NEXUS" — Modul Haushalt
+   ----------------------------------------------------------------------
+   Markup: `modules/haushalt/*.tsx`. Kennzahlkacheln, Panels, Tabellen,
+   Reiter und Balken formt `bausteine.css`; hier bleibt, was nur der
+   Haushalt hat: die Vertragsliste, die Fixkostenzeilen, Kontochips und
+   der Rechner.
+   ====================================================================== */
+
+/* ── Vertraege & Fristen ─────────────────────────────────────────────
+   Die Dringlichkeit bleibt die der Tafel: Rot heisst „jetzt kuendigen",
+   Bernstein „bald" oder „verpasst". Rot und Bernstein bekommen dazu einen
+   leichten Grund, damit man sie auch ohne den Balken findet. */
+html[data-haut="nexus"] .vertrag-zeile { padding-top: 11px; padding-bottom: 11px; }
+html[data-haut="nexus"] .vertrag-zeile.dringend {
+  --streifen: var(--red);
+  background: color-mix(in oklab, var(--red) 9%, transparent);
+}
+html[data-haut="nexus"] .vertrag-zeile.verpasst {
+  --streifen: var(--amber);
+  background: color-mix(in oklab, var(--amber) 8%, transparent);
+}
+html[data-haut="nexus"] .vertrag-zeile.bald { --streifen: var(--amber); }
+html[data-haut="nexus"] .vertrag-zeile.dringend:hover { background: color-mix(in oklab, var(--red) 14%, transparent); }
+html[data-haut="nexus"] .vertrag-zeile.verpasst:hover { background: color-mix(in oklab, var(--amber) 12%, transparent); }
+html[data-haut="nexus"] .vertrag-name { font-weight: 700; }
+html[data-haut="nexus"] .vertrag-zeile .btn.small { border-radius: 999px; }
+
+/* ── Fixkosten- und Einnahmenzeilen ──────────────────────────────────
+   Sie stehen in Panels je Kategorie. Der Betrag ist die Zahl, derentwegen
+   man hinsieht — fett, in der Textschrift des Kits statt in der Mono. */
+html[data-haut="nexus"] .hh-zeile {
+  padding: 11px 12px;
+  border-radius: 10px;
+  border-bottom-color: transparent;
+  transition: background var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .hh-liste .hh-zeile + .hh-zeile { box-shadow: 0 -1px 0 var(--line); }
+html[data-haut="nexus"] .hh-name { font-weight: 600; }
+html[data-haut="nexus"] .hh-betrag {
+  font-family: var(--nx-font-sans);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+html[data-haut="nexus"] .hh-intervall,
+html[data-haut="nexus"] .hh-konto,
+html[data-haut="nexus"] .hh-faellig { color: var(--text-faint); }
+html[data-haut="nexus"] .hh-fehlt { border-radius: 999px; }
+
+/* Der Panelkopf einer Kategorie: Name gross, Monatssumme als Pille. */
+html[data-haut="nexus"] .panel:has(> .hh-liste) > .panel-head .panel-sub {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+/* ── Kontochips ────────────────────────────────────────────────────── */
+html[data-haut="nexus"] .konto-chip strong { font-weight: 800; }
+
+/* ── Buchungen & Jahresbericht ─────────────────────────────────────── */
+html[data-haut="nexus"] .buch-betrag,
+html[data-haut="nexus"] .bs {
+  font-family: var(--nx-font-sans);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Rechner ───────────────────────────────────────────────────────── */
+html[data-haut="nexus"] .rechner-knopf,
+html[data-haut="nexus"] .taste { border-radius: 10px; }
+html[data-haut="nexus"] .rechner-anzeige { border-radius: 12px; }

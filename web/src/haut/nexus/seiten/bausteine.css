@@ -1,0 +1,366 @@
+/* ======================================================================
+   HAUT „NEXUS" — gemeinsame Bausteine
+   ----------------------------------------------------------------------
+   Was mehrere Module teilen, steht hier EINMAL: Panels, Kennzahlleisten,
+   Tabellen, Eingabeformulare, Reiter, Chips, Balken, Leerzustaende. Die
+   Dateien der einzelnen Module (`termine.css`, `haushalt.css`, …) setzen
+   nur noch das obendrauf, was es allein in ihrem Modul gibt.
+
+   Vorbilder im Kit: `.nx-panel` + `.nx-panel-head`, `.nx-kpi`,
+   `.nx-tablewrap` + `.nx-table`, `.nx-tabs`, `.nx-chip`, `.nx-kpi-bar`,
+   `.nx-empty`.
+
+   Regel 3 gilt: wo die Tafel eine Bedeutungsfarbe setzt (Rot, Bernstein,
+   Gruen), bleibt sie stehen — hier wird nur die Form geaendert.
+   ====================================================================== */
+
+/* ── Panels ────────────────────────────────────────────────────────────
+   Die Tafel beschriftet ein Panel mit einer kleinen Versalzeile. Im Kit
+   hat ein Panel eine richtige Ueberschrift und darunter oder daneben eine
+   gedaempfte Unterzeile. */
+html[data-haut="nexus"] .panel {
+  padding: 20px 22px;
+  border-radius: 18px;
+}
+html[data-haut="nexus"] .panel-head { margin-bottom: 16px; }
+html[data-haut="nexus"] .panel-head h3 {
+  font-family: var(--nx-font-sans);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--text);
+}
+html[data-haut="nexus"] .panel-sub {
+  margin-left: 6px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+/* ── Kennzahlleisten ───────────────────────────────────────────────────
+   Die Tafel legt Messwerte in EINEN Block, innen durch Haarlinien geteilt.
+   Das Kit stellt jede Zahl als eigene Kachel (`.nx-kpi`): runde Ecken,
+   Farbschein oben rechts, die Zahl gross und fett. Drei Leisten in der App
+   folgen diesem Muster: `.stats-kpis` (Laermprotokoll, Zaehlerstaende),
+   `.hh-kopf` (Haushalt) und `.fz-kpis` (Fahrzeug). */
+html[data-haut="nexus"] .stats-kpis,
+html[data-haut="nexus"] .hh-kopf {
+  gap: 12px;
+  border: none;
+  border-radius: 0;
+  background: none;
+  overflow: visible;
+}
+html[data-haut="nexus"] .kpi,
+html[data-haut="nexus"] .hh-kachel {
+  --tint: var(--akzent);
+  position: relative;
+  isolation: isolate;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 96px;
+  padding: 14px 16px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  transition: border-color 0.25s var(--kurve), transform 0.25s var(--kurve);
+}
+html[data-haut="nexus"] .kpi::before,
+html[data-haut="nexus"] .hh-kachel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(70% 70% at 100% 0%, color-mix(in oklab, var(--tint) 18%, transparent), transparent 70%);
+}
+html[data-haut="nexus"] .kpi:hover,
+html[data-haut="nexus"] .hh-kachel:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--tint) 45%, var(--line));
+}
+/* Eine Warnkachel bekommt ihren Schein in Bernstein statt im Akzent —
+   dieselbe Aussage wie der Innenstreifen der Tafel, in der Form des Kits. */
+html[data-haut="nexus"] .hh-kachel.warn {
+  --tint: var(--amber);
+  box-shadow: none;
+  border-color: color-mix(in oklab, var(--amber) 40%, var(--line));
+}
+
+html[data-haut="nexus"] .kpi-num,
+html[data-haut="nexus"] .hh-wert {
+  font-family: var(--nx-font-sans);
+  font-size: 1.55rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+html[data-haut="nexus"] .kpi-num.accent,
+html[data-haut="nexus"] .hh-kachel.gross .hh-wert { font-size: 1.9rem; }
+html[data-haut="nexus"] .kpi-num.accent { color: var(--akzent); }
+html[data-haut="nexus"] .kpi-lbl,
+html[data-haut="nexus"] .hh-lbl {
+  font-family: var(--nx-font-sans);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-faint);
+}
+html[data-haut="nexus"] .hh-sub { font-size: 0.76rem; color: var(--text-dim); }
+
+/* ── Tabellen ──────────────────────────────────────────────────────────
+   `.nx-tablewrap` + `.nx-table`: runder Rahmen, Kopfzeile als eigene
+   Flaeche, Zeilen hellen beim Ueberfahren auf. Die Werkzeuge einer Zeile
+   erscheinen erst, wenn man bei ihr ist — in langen Listen stehen sonst
+   Dutzende Knoepfe im Blickfeld. */
+html[data-haut="nexus"] .table-wrap {
+  border-radius: 18px;
+  background: var(--surface);
+}
+html[data-haut="nexus"] .data-table { font-size: 0.86rem; }
+html[data-haut="nexus"] .data-table th {
+  padding: 12px 16px;
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+html[data-haut="nexus"] .data-table td {
+  padding: 12px 16px;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}
+html[data-haut="nexus"] .data-table tbody tr { transition: background var(--t) var(--kurve); }
+html[data-haut="nexus"] .data-table tbody tr:hover { background: var(--surface-2); }
+
+/* Nur in Zeilen (Tabellenzeile oder Listeneintrag) — Zellenaktionen an
+   anderer Stelle, etwa im Kopf einer Fahrzeugkarte, bleiben sichtbar:
+   dort gibt es keine Zeile, bei der man „sein" koennte. */
+html[data-haut="nexus"] :is(tr, li) .cell-actions :is(.icon-btn, .btn) {
+  opacity: 0;
+  transition: opacity var(--t) var(--kurve), background var(--t) var(--kurve), border-color var(--t) var(--kurve), color var(--t) var(--kurve);
+}
+html[data-haut="nexus"] :is(tr, li):is(:hover, :focus-within) .cell-actions :is(.icon-btn, .btn) { opacity: 1; }
+@media (hover: none) {
+  html[data-haut="nexus"] :is(tr, li) .cell-actions :is(.icon-btn, .btn) { opacity: 1; }
+}
+
+html[data-haut="nexus"] .icon-btn.danger:hover {
+  color: var(--red-soft);
+  border-color: color-mix(in oklab, var(--red) 55%, transparent);
+  background: color-mix(in oklab, var(--red) 12%, transparent);
+}
+
+/* ── Eingabeformulare ──────────────────────────────────────────────────
+   Jedes Modul hat oben eine Eingabezeile. Im Kit ist das eine eigene,
+   stark gerundete Flaeche; die Felder darin werden weich und etwas hoeher.
+   Aufgaben hat darueber hinaus einen eigenen „Composer" (`aufgaben.css`). */
+html[data-haut="nexus"] .entry-form {
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+}
+html[data-haut="nexus"] .entry-form input,
+html[data-haut="nexus"] .entry-form select {
+  border-radius: 10px;
+}
+html[data-haut="nexus"] .entry-form > .btn { border-radius: 10px; }
+
+/* Beschriftete Felder (`.feld-mit-label`, Datumsfelder im Fahrzeug) */
+html[data-haut="nexus"] .feld-mit-label,
+html[data-haut="nexus"] .report-range label,
+html[data-haut="nexus"] .meter-modal-fields label {
+  font-family: var(--nx-font-sans);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim);
+}
+
+html[data-haut="nexus"] .form-error {
+  border-radius: 12px;
+}
+
+/* ── Filter- und Suchleisten ─────────────────────────────────────────── */
+html[data-haut="nexus"] .filter-bar {
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+}
+html[data-haut="nexus"] .filter-lbl {
+  font-family: var(--nx-font-mono);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+html[data-haut="nexus"] .suchfeld input {
+  border-radius: 12px;
+  padding-left: 36px;
+}
+html[data-haut="nexus"] .suchfeld .ikon { left: 12px; }
+html[data-haut="nexus"] .filter-count {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+/* ── Reiter ────────────────────────────────────────────────────────────
+   `.nx-tabs`: keine Unterstreichung, sondern eine eingelassene Leiste, in
+   der der aktive Reiter als angehobene Flaeche steht — dieselbe Form wie
+   die Segmentwahl (Woche/Monat, 7/14/30 Tage). */
+html[data-haut="nexus"] .tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-sunk);
+}
+html[data-haut="nexus"] .view-toolbar > .tabs { align-self: flex-start; }
+html[data-haut="nexus"] .tab {
+  padding: 7px 14px;
+  border-radius: 9px;
+  font-size: 0.86rem;
+}
+
+/* ── Chips ─────────────────────────────────────────────────────────────
+   Alle Wahl- und Filterknoepfe werden Pillen (`.nx-chip`). Die gewaehlte
+   Pille bekommt die Akzentkante, nicht nur eine hellere Flaeche. */
+html[data-haut="nexus"] .tf-chip,
+html[data-haut="nexus"] .meter-chip,
+html[data-haut="nexus"] .konto-chip {
+  border-radius: 999px;
+  background: var(--surface);
+  border-color: var(--line);
+  transition: background var(--t) var(--kurve), color var(--t) var(--kurve), border-color var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .tf-chip { padding: 6px 13px; }
+html[data-haut="nexus"] .meter-chip { padding: 8px 15px; }
+html[data-haut="nexus"] .konto-chip { padding: 7px 13px; }
+html[data-haut="nexus"] .tf-chip:hover:not(:disabled),
+html[data-haut="nexus"] .meter-chip:hover {
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+html[data-haut="nexus"] .tf-chip.aktiv,
+html[data-haut="nexus"] .meter-chip.active {
+  color: var(--text);
+  background: var(--akzent-soft);
+  border-color: color-mix(in oklab, var(--akzent) 55%, transparent);
+}
+html[data-haut="nexus"] .meter-chip.active {
+  background: color-mix(in oklab, var(--accent, var(--akzent)) 14%, transparent);
+  border-color: color-mix(in oklab, var(--accent, var(--akzent)) 55%, transparent);
+}
+html[data-haut="nexus"] .tf-chip-zahl {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  text-align: center;
+}
+html[data-haut="nexus"] .meter-chip.add { border-style: dashed; background: transparent; }
+html[data-haut="nexus"] .chip { border-radius: 999px; padding: 3px 10px; }
+
+/* ── Balken ────────────────────────────────────────────────────────────
+   Im Kit sind Spuren Pillen ohne Kante (`.nx-kpi-bar`), die Fuellung
+   laeuft als Verlauf in ihrer eigenen Farbe aus. Die Farbe selbst bleibt,
+   was das Modul setzt (`--pf`, pink fuer den Sonntag im Laermprotokoll). */
+html[data-haut="nexus"] .balken-spur,
+html[data-haut="nexus"] .bar-track,
+html[data-haut="nexus"] .tilgung-spur {
+  height: 7px;
+  border: none;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+html[data-haut="nexus"] .balken-fuell,
+html[data-haut="nexus"] .bar-fill,
+html[data-haut="nexus"] .tilgung-fuell {
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--pf, var(--akzent)) 55%, transparent), var(--pf, var(--akzent)));
+  box-shadow: 0 0 12px -3px var(--pf, var(--akzent));
+}
+html[data-haut="nexus"] .bar-fill.hot { --pf: var(--pink); }
+html[data-haut="nexus"] .hh-fuell { --pf: var(--violet); }
+
+/* Saeulen („Verlauf" in der Stechuhr): oben rund, von unten nach oben
+   im Akzentverlauf. */
+html[data-haut="nexus"] .verlauf { gap: 9px; }
+html[data-haut="nexus"] .verlauf-bar {
+  border-radius: 8px 8px 3px 3px;
+  background: linear-gradient(180deg, var(--akzent), color-mix(in oklab, var(--akzent-3) 70%, transparent));
+  opacity: 0.8;
+}
+html[data-haut="nexus"] .verlauf-saeule:hover .verlauf-bar {
+  opacity: 1;
+  box-shadow: 0 0 18px -4px var(--akzent-glow);
+}
+html[data-haut="nexus"] .verlauf-lbl { font-family: var(--nx-font-mono); font-size: 0.64rem; }
+
+/* ── Leerzustaende ─────────────────────────────────────────────────────
+   `.nx-empty`: gestrichelter Kasten, damit „hier ist nichts" als Flaeche
+   lesbar ist und nicht wie ein verirrter Satz. Innerhalb von Tabellen und
+   Listen bleibt es ein Satz — dort ist der Rahmen schon da. */
+html[data-haut="nexus"] .module-view > .empty,
+html[data-haut="nexus"] .panel > .empty,
+html[data-haut="nexus"] .stat-empty {
+  padding: 28px 16px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--surface) 55%, transparent);
+  color: var(--text-dim);
+}
+
+/* ── Kleinteile ──────────────────────────────────────────────────────── */
+html[data-haut="nexus"] .check-lbl { gap: 8px; font-size: 0.84rem; }
+html[data-haut="nexus"] .stats-caret { color: var(--akzent); }
+html[data-haut="nexus"] .q-badge { border-radius: 999px; }
+
+/* ── Zeilenlisten mit Farbstreifen ─────────────────────────────────────
+   Termine, Vertraege, Fahrzeugfristen und die naechsten Geburtstage legt
+   die Tafel als Stapel einzelner Kaertchen mit farbigem Rand links. Das
+   Kit fasst sie zu EINER Liste (`.nx-list`): eine Flaeche, Haarlinien
+   zwischen den Zeilen. Der Farbrand wird ein kurzer, runder Balken innen
+   am Rand (`::before`); welche Farbe er hat, sagt jede Moduldatei ueber
+   `--streifen`. Ohne Angabe bleibt er unsichtbar. */
+html[data-haut="nexus"] :is(.tf-liste, .vertrag-liste, .fz-fristen, .gb-naechste) {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+html[data-haut="nexus"] :is(.tf-zeile, .vertrag-zeile, .fz-frist, .gb-next) {
+  --streifen: transparent;
+  position: relative;
+  padding-left: 22px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  transition: background var(--t) var(--kurve);
+}
+html[data-haut="nexus"] :is(.tf-zeile, .vertrag-zeile, .fz-frist, .gb-next):last-child { border-bottom: none; }
+html[data-haut="nexus"] :is(.tf-zeile, .vertrag-zeile, .fz-frist, .gb-next):hover { background: var(--surface-2); }
+html[data-haut="nexus"] :is(.tf-zeile, .vertrag-zeile, .fz-frist, .gb-next)::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--streifen);
+  box-shadow: 0 0 10px -2px var(--streifen);
+}

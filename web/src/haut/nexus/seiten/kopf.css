@@ -1,0 +1,363 @@
+/* ======================================================================
+   HAUT „NEXUS" — Kopfbereiche
+   ----------------------------------------------------------------------
+   Ab hier arbeitet die Haut nicht mehr nur ueber Tokens. Die Brücke
+   (`../bruecke.css`) faerbt um; die Dateien in `seiten/` bauen die Seiten
+   im Formenvokabular des Kits NEU auf — dasselbe Markup, eine andere
+   Anordnung. Alles haengt weiter unter `html[data-haut="nexus"]`, und
+   `core/theme.css` bleibt unangetastet.
+
+   Diese Datei: der Kopf der Startseite und der Kopf jeder Modulansicht.
+   Sie gilt fuer ALLE Module, weil alle denselben Kopf benutzen.
+
+   Vorbild im Kit: `.nx-head` (Kicker, grosse Ueberschrift mit Verlaufswort,
+   Einleitung) und `.nx-kpi` (Messkachel mit Farbschein in der Ecke). Uhr
+   und Wetter sind im Kit keine Randnotizen hinter einer Trennlinie, sondern
+   eigene kleine Kacheln.
+   ====================================================================== */
+
+/* ── Grundform: kein Strich mehr unter dem Kopf ────────────────────────
+   Die Tafel trennt Kopf und Inhalt mit einer Haarlinie. Das Kit trennt mit
+   Abstand — der Kopf ist entweder selbst eine Flaeche (Startseite) oder er
+   steht frei (Modulansicht). */
+html[data-haut="nexus"] .hero {
+  padding-bottom: 0;
+  border-bottom: none;
+  gap: 20px 28px;
+}
+
+/* ── Kicker ───────────────────────────────────────────────────────────
+   Die Datumszeile wird zum Kicker des Kits: Mono, Akzentfarbe, weit
+   gesperrt, mit einem Lichtpunkt davor. Der Punkt pulsiert im Kit — hier
+   nicht: er steht jeden Tag den ganzen Tag da, und ein Dauerpulsieren am
+   oberen Bildrand zieht das Auge von allem anderen ab. */
+html[data-haut="nexus"] .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 14px;
+  font-family: var(--nx-font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: var(--akzent);
+}
+html[data-haut="nexus"] .eyebrow::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 12px currentColor;
+}
+
+/* ── Ueberschriften in Kit-Groesse ───────────────────────────────────── */
+html[data-haut="nexus"] .welcome {
+  font-size: clamp(2rem, 1.3rem + 3vw, 3.4rem);
+  line-height: 1.04;
+  text-wrap: balance;
+}
+html[data-haut="nexus"] .module-h1 {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: clamp(1.6rem, 1.15rem + 1.8vw, 2.4rem);
+  line-height: 1.08;
+}
+html[data-haut="nexus"] .subtitle {
+  margin-top: 12px;
+  max-width: 58ch;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* Das Modulsymbol steht in einer getoenten Kachel statt frei neben dem
+   Titel — dieselbe Form wie auf der Karte der Uebersicht, damit man die
+   Karte in der Ansicht wiedererkennt. */
+html[data-haut="nexus"] .module-h1-ico {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 1.55em;
+  height: 1.55em;
+  font-size: 0.72em;
+  border-radius: 14px;
+  color: var(--accent, var(--akzent));
+  background: color-mix(in oklab, var(--accent, var(--akzent)) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent, var(--akzent)) 30%, transparent);
+}
+
+/* Der Weg zurueck ist im Kit eine Pille, kein grauer Satz. */
+html[data-haut="nexus"] .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 5px 12px 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: border-color var(--t) var(--kurve), color var(--t) var(--kurve), background var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .back-link:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--akzent);
+}
+
+/* ── Messkacheln: Uhr und Wetter ──────────────────────────────────────
+   `.nx-kpi` aus dem Kit: eigene Flaeche, runde Ecken, ein Farbschein oben
+   rechts. Weil beide auf dem Kopfbild stehen koennen, sind sie leicht
+   durchscheinend und zeichnen weich — auf der blanken Seite sieht man davon
+   nur die Flaeche. */
+html[data-haut="nexus"] .hero-aside { gap: 12px; align-items: stretch; }
+
+html[data-haut="nexus"] .clock,
+html[data-haut="nexus"] .hero-weather {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--surface) 82%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+html[data-haut="nexus"] .clock::before,
+html[data-haut="nexus"] .hero-weather::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(80% 90% at 100% 0%, var(--akzent-soft), transparent 70%);
+}
+
+html[data-haut="nexus"] .clock {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 168px;
+  padding: 14px 18px;
+  text-align: left;
+}
+html[data-haut="nexus"] .clock-time {
+  font-size: 1.9rem;
+  font-weight: 700;
+}
+html[data-haut="nexus"] .clock-label {
+  font-family: var(--nx-font-mono);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+}
+html[data-haut="nexus"] .clock.klein { min-width: 0; padding: 9px 14px; }
+html[data-haut="nexus"] .clock.klein .clock-time { font-size: 1.2rem; }
+
+html[data-haut="nexus"] .hero-weather {
+  gap: 16px;
+  padding: 14px 18px;
+}
+html[data-haut="nexus"] .hero-weather-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  font-size: 30px;
+  border-radius: 14px;
+  color: var(--akzent);
+  background: var(--akzent-soft);
+}
+html[data-haut="nexus"] .hero-weather-temp { font-size: 1.9rem; font-weight: 700; }
+html[data-haut="nexus"] .hero-weather-place {
+  font-family: var(--nx-font-mono);
+  font-weight: 600;
+}
+html[data-haut="nexus"] .hero-weather-metrics {
+  padding-left: 16px;
+  border-left-color: var(--line);
+}
+html[data-haut="nexus"] .hero-weather.klein { padding: 9px 14px; gap: 10px; }
+html[data-haut="nexus"] .hero-weather.klein .hero-weather-icon { width: 36px; height: 36px; font-size: 20px; border-radius: 10px; }
+html[data-haut="nexus"] .hero-weather.klein .hero-weather-temp { font-size: 1.2rem; }
+
+/* ── Startseite: das Bild IST der Hintergrund ──────────────────────────
+   Keine Karte, kein Rahmen. Der Kopf bricht aus dem Seitenabstand aus —
+   aus ZWEI Abstaenden, die uebereinander liegen: dem von `.nx-content`
+   (Kit, nexus.css) und dem von `.nx-wrap` (bruecke.css). Wer einen davon
+   aendert, muss ihn hier mitziehen, sonst bleibt ein Spalt zur Schiene.
+   So laeuft das Bild randlos von der Schiene bis zum rechten Rand und
+   direkt unter die Kopfzeile. Das Bild fuellt ihn ganz und blendet nach
+   unten in den Seitengrund aus — die Kachelwand beginnt dort, wo das Bild
+   aufhoert, ohne Kante dazwischen.
+
+   Der Text steht frei auf dem Bild. Lesbar bleibt er durch zwei Schleier
+   (von links und von unten) und einen weichen Schatten an der Schrift.
+
+   Ist die Inhaltsbreite unter „Aussehen" enger gestellt als „Voll", laeuft
+   das Bild bis an die Kanten dieser Breite, nicht bis an den Fensterrand —
+   es gehoert zum Inhalt, nicht zum Fenster. */
+html[data-haut="nexus"] .hero-start {
+  /* Seitenabstand des Kits + Seitenabstand der Bruecke */
+  --rand-x: calc(clamp(1.25rem, 3vw, 2.5rem) + clamp(18px, 3vw, 34px));
+  --rand-oben: calc(1.5rem + 26px);
+  align-items: flex-end;
+  gap: 28px 40px;
+  min-height: clamp(340px, 50vh, 560px);
+  margin: calc(-1 * var(--rand-oben)) calc(-1 * var(--rand-x)) -6px;
+  padding: calc(var(--rand-oben) + 48px) var(--rand-x) 34px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: 0;
+}
+
+/* Ohne eigenes Bild: ein Farbschein aus dem Akzent, randlos wie das Bild
+   — damit die Startseite nicht nackt beginnt, nur weil keins gewaehlt ist. */
+html[data-haut="nexus"] .hero-start:not(:has(.hero-bild))::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(55% 90% at 85% 10%, color-mix(in oklab, var(--akzent) 45%, transparent), transparent 70%),
+    radial-gradient(45% 80% at 10% 0%, color-mix(in oklab, var(--akzent-3) 36%, transparent), transparent 70%),
+    radial-gradient(40% 60% at 55% 60%, color-mix(in oklab, var(--akzent-2) 22%, transparent), transparent 75%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 40%, transparent 100%);
+}
+
+/* Das Bild und die Abdunklung aus den Einstellungen: nach unten UND zu
+   beiden Seiten ausgeblendet. Nur nach unten reichte nicht — links an der
+   Schiene und rechts am Fensterrand stand das Bild sonst mit harter Kante.
+   Zwei Masken, die sich schneiden (`intersect`): sichtbar ist nur, was in
+   beiden sichtbar ist. Deckkraft, Ausschnitt und Unschaerfe kommen weiter
+   als Inline-Werte aus React. */
+html[data-haut="nexus"] .hero-start .hero-bild,
+html[data-haut="nexus"] .hero-start .hero-dunkel {
+  -webkit-mask-image:
+    linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%),
+    linear-gradient(to right, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%),
+    linear-gradient(to right, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  mask-composite: intersect;
+}
+
+/* Die Schleier: von links (traegt den Text) und von unten (fuehrt in die
+   Seite). Ueber dem Bild (z 0, spaeter gezeichnet), unter dem Inhalt. */
+html[data-haut="nexus"] .hero-start:has(.hero-bild)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, color-mix(in oklab, var(--bg) 82%, transparent) 0%, color-mix(in oklab, var(--bg) 45%, transparent) 38%, transparent 68%),
+    linear-gradient(0deg, var(--bg) 0%, color-mix(in oklab, var(--bg) 70%, transparent) 22%, transparent 55%);
+}
+
+/* ── Der Text ─────────────────────────────────────────────────────────── */
+html[data-haut="nexus"] .hero-start .welcome {
+  font-size: clamp(2.4rem, 1.4rem + 4vw, 4.6rem);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.45);
+}
+html[data-haut="nexus"] .hero-start .subtitle {
+  margin-top: 16px;
+  font-size: 1.05rem;
+  color: color-mix(in oklab, var(--text) 82%, transparent);
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.6);
+}
+html[data-haut="nexus"] .hero-start .eyebrow { margin-bottom: 18px; }
+
+/* ── Uhr und Wetter ────────────────────────────────────────────────────
+   Auf dem Bild keine Kacheln mehr. Die Uhr ist Typografie: gross, frei,
+   rechtsbuendig, mit der Beschriftung als Kicker darunter. Das Wetter
+   steht als eine Glasleiste daneben — die einzige Flaeche im Kopf, und
+   sie ist durchsichtig genug, dass das Bild durchscheint. */
+/* Uhr oben, Wetter darunter, beide rechtsbuendig: eine schmale Spalte
+   neben der grossen Begruessung. Nebeneinander passten sie auf einem
+   normalen Schirm nicht mehr neben den Text und rutschten darunter. */
+html[data-haut="nexus"] .hero-start > div:not(.hero-aside) { flex: 1 1 420px; min-width: 0; }
+html[data-haut="nexus"] .hero-start .hero-aside {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 16px;
+  margin-left: auto;
+}
+
+html[data-haut="nexus"] .hero-start .clock {
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  text-align: right;
+  overflow: visible;
+}
+html[data-haut="nexus"] .hero-start .clock::before { display: none; }
+html[data-haut="nexus"] .hero-start .clock-time {
+  font-size: clamp(2.4rem, 1.6rem + 2.6vw, 3.8rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.5);
+}
+html[data-haut="nexus"] .hero-start .clock-label {
+  margin-top: 8px;
+  color: var(--akzent);
+  letter-spacing: 0.24em;
+}
+html[data-haut="nexus"] .hero-start .clock.klein .clock-time { font-size: 1.8rem; }
+
+html[data-haut="nexus"] .hero-start .hero-weather {
+  padding: 12px 18px 12px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 20px;
+  background: color-mix(in oklab, var(--bg) 42%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  backdrop-filter: blur(18px) saturate(1.3);
+  box-shadow: 0 20px 50px -24px rgba(0, 0, 0, 0.8);
+}
+html[data-haut="nexus"] .hero-start .hero-weather::before { display: none; }
+html[data-haut="nexus"] .hero-start .hero-weather-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 15px;
+  background: color-mix(in oklab, var(--akzent) 22%, transparent);
+}
+html[data-haut="nexus"] .hero-start .hero-weather-metrics { border-left-color: rgba(255, 255, 255, 0.1); }
+
+/* Die Kachelwand darunter rueckt an das auslaufende Bild heran. */
+html[data-haut="nexus"] .hero-start + section { position: relative; z-index: 1; }
+
+@media (max-width: 720px) {
+  html[data-haut="nexus"] .hero-start {
+    min-height: 0;
+    padding-top: 48px;
+    padding-bottom: 24px;
+  }
+  html[data-haut="nexus"] .hero-start:has(.hero-bild)::after {
+    background: linear-gradient(0deg, var(--bg) 0%, color-mix(in oklab, var(--bg) 70%, transparent) 45%, color-mix(in oklab, var(--bg) 35%, transparent) 100%);
+  }
+  html[data-haut="nexus"] .hero-start .hero-aside {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    margin-left: 0;
+  }
+  html[data-haut="nexus"] .hero-start .clock { order: -1; text-align: left; }
+}

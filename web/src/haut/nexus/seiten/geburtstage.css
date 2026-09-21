@@ -1,0 +1,62 @@
+/* ======================================================================
+   HAUT „NEXUS" — Modul Geburtstage
+   ----------------------------------------------------------------------
+   Markup: `modules/geburtstage/View.tsx`. „Als Naechstes" ist eine
+   Zeilenliste (bausteine.css); das Datum steht darin als kleiner
+   Kalenderblock. Der Geburtstag HEUTE traegt Pink — wie in der Tafel.
+   ====================================================================== */
+
+html[data-haut="nexus"] .gb-next {
+  --streifen: color-mix(in oklab, var(--akzent) 60%, transparent);
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+html[data-haut="nexus"] .gb-next.heute {
+  --streifen: var(--pink);
+  background: color-mix(in oklab, var(--pink) 10%, transparent);
+}
+
+/* Das Datum als Kalenderblatt: kleine getoente Flaeche, fett. */
+html[data-haut="nexus"] .gb-next .gb-datum {
+  justify-self: start;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: var(--akzent-soft);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 0.82rem;
+}
+html[data-haut="nexus"] .gb-next.heute .gb-datum { background: color-mix(in oklab, var(--pink) 18%, transparent); }
+html[data-haut="nexus"] .gb-next .gb-name { font-weight: 650; }
+
+/* „in 6 Tagen" als Pille in der Bedienfarbe */
+html[data-haut="nexus"] .gb-wann {
+  padding: 3px 10px;
+  border: 1px solid color-mix(in oklab, var(--akzent) 45%, transparent);
+  border-radius: 999px;
+  background: var(--akzent-soft);
+  color: var(--akzent);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+html[data-haut="nexus"] .gb-next.heute .gb-wann {
+  color: var(--pink);
+  border-color: color-mix(in oklab, var(--pink) 50%, transparent);
+  background: color-mix(in oklab, var(--pink) 14%, transparent);
+}
+html[data-haut="nexus"] .gb-alter { font-size: 0.74rem; }
+
+/* Die Monatspanels: Zeilen wie im Haushalt. */
+html[data-haut="nexus"] .gb-zeile {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border-bottom-color: transparent;
+  transition: background var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .gb-liste .gb-zeile + .gb-zeile { box-shadow: 0 -1px 0 var(--line); }
+html[data-haut="nexus"] .gb-zeile .gb-tag {
+  font-family: var(--nx-font-mono);
+  font-weight: 600;
+  color: var(--akzent);
+}
+html[data-haut="nexus"] .gb-zeile .gb-name { font-weight: 600; }

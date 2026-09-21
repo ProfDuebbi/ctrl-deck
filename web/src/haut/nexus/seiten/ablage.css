@@ -1,0 +1,178 @@
+/* ======================================================================
+   HAUT „NEXUS" — Module Notizen, Dokumente, Tresor
+   ----------------------------------------------------------------------
+   Die drei Ablagen: links eine Liste oder Faecher, rechts der Inhalt
+   (Notizen, Dokumente) bzw. ein Tor, hinter dem alles liegt (Tresor).
+   ====================================================================== */
+
+/* ── Notizen ─────────────────────────────────────────────────────────── */
+html[data-haut="nexus"] .nz-liste,
+html[data-haut="nexus"] .nz-blatt {
+  border-radius: 18px;
+}
+html[data-haut="nexus"] .nz-zeile { transition: background var(--t) var(--kurve); }
+html[data-haut="nexus"] .nz-zeile:hover { background: var(--surface-2); }
+/* Die gewaehlte Notiz: statt der duennen Kante ein runder Balken innen und
+   ein Hauch Akzent — dieselbe Form wie die Zeilenlisten der anderen
+   Module. */
+html[data-haut="nexus"] .nz-zeile.an {
+  position: relative;
+  background: var(--akzent-soft);
+  box-shadow: none;
+}
+html[data-haut="nexus"] .nz-zeile.an::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--akzent);
+  box-shadow: 0 0 10px -2px var(--akzent);
+}
+html[data-haut="nexus"] .nz-zeile-titel { font-weight: 650; }
+html[data-haut="nexus"] .nz-tag,
+html[data-haut="nexus"] .nz-zeile-tag { border-radius: 999px; }
+html[data-haut="nexus"] .nz-tag { padding: 3px 10px; }
+html[data-haut="nexus"] .nz-tag.an {
+  color: var(--akzent);
+  border-color: color-mix(in oklab, var(--akzent) 50%, transparent);
+  background: var(--akzent-soft);
+}
+html[data-haut="nexus"] .nz-titel { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; }
+html[data-haut="nexus"] .nz-titel:focus-visible { box-shadow: 0 2px 0 var(--akzent); }
+html[data-haut="nexus"] .nz-leiste { border-radius: 12px; }
+html[data-haut="nexus"] .nz-knopf { border-radius: 8px; }
+html[data-haut="nexus"] .nz-leerblatt { color: var(--text-dim); }
+html[data-haut="nexus"] .nz-leerblatt .ikon {
+  box-sizing: content-box;
+  padding: 14px;
+  border-radius: 16px;
+  color: var(--akzent);
+  background: var(--akzent-soft);
+  opacity: 1;
+}
+
+/* ── Dokumente ───────────────────────────────────────────────────────── */
+html[data-haut="nexus"] .dk-faecher {
+  padding: 8px;
+  border-radius: 16px;
+}
+html[data-haut="nexus"] .dk-faecher button { padding: 8px 11px; border-radius: 10px; }
+html[data-haut="nexus"] .dk-faecher button.an {
+  color: var(--text);
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+html[data-haut="nexus"] .dk-faecher em {
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  text-align: center;
+  font-weight: 600;
+}
+/* Die Karte ist ein Panel, das seinen Abstand selbst regelt (Kopf und
+   Detail haben eigenen) — der Panelabstand aus bausteine.css gilt hier
+   nicht. */
+html[data-haut="nexus"] .dk-karte { padding: 0; border-radius: 16px; }
+html[data-haut="nexus"] .dk-detail { padding: 4px 16px 16px; }
+html[data-haut="nexus"] .dk-kopf { padding: 14px 16px; }
+html[data-haut="nexus"] .dk-titel { font-weight: 700; }
+html[data-haut="nexus"] .dk-fach {
+  border-radius: 999px;
+  font-family: var(--nx-font-mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+html[data-haut="nexus"] .dk-ablauf.bald,
+html[data-haut="nexus"] .dk-ablauf.abgelaufen {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+html[data-haut="nexus"] .dk-ablauf.bald {
+  border: 1px solid color-mix(in oklab, var(--amber) 45%, transparent);
+  background: color-mix(in oklab, var(--amber) 12%, transparent);
+}
+html[data-haut="nexus"] .dk-ablauf.abgelaufen {
+  border: 1px solid color-mix(in oklab, var(--red) 50%, transparent);
+  background: color-mix(in oklab, var(--red) 14%, transparent);
+}
+html[data-haut="nexus"] .dk-liste > .empty {
+  padding: 40px 18px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 18px;
+  background: color-mix(in oklab, var(--surface) 55%, transparent);
+  color: var(--text-dim);
+}
+html[data-haut="nexus"] .dk-liste.ziel { border-radius: 18px; }
+html[data-haut="nexus"] .dk-vorschau { border-radius: 18px; }
+
+/* ── Tresor ──────────────────────────────────────────────────────────
+   Das Tor ist die eine Karte, die man sieht, solange nichts entsperrt
+   ist. Im Kit wird sie eine Buehne: Farbschein, das Schloss in einer
+   leuchtenden Kachel, das Passwortfeld gross. */
+html[data-haut="nexus"] .tresor-tor {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  gap: 14px;
+  padding: 36px 32px 30px;
+  border-radius: 22px;
+  background:
+    radial-gradient(90% 70% at 50% 0%, var(--akzent-soft), transparent 70%),
+    var(--surface);
+}
+html[data-haut="nexus"] .tresor-tor::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: var(--grad);
+}
+html[data-haut="nexus"] .tresor-tor-ico {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  font-size: 30px;
+  border-radius: 18px;
+  color: var(--akzent);
+  background: var(--akzent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--akzent) 35%, transparent), 0 10px 30px -12px var(--akzent-glow);
+}
+html[data-haut="nexus"] .tresor-tor-titel { font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; }
+html[data-haut="nexus"] .tresor-tor-form input,
+html[data-haut="nexus"] .tresor-recovery-eingabe,
+html[data-haut="nexus"] .tresor-reset-eingabe {
+  padding: 12px 14px;
+  border-radius: 12px;
+}
+html[data-haut="nexus"] .tresor-tor-form input:focus-visible,
+html[data-haut="nexus"] .tresor-recovery-eingabe:focus-visible,
+html[data-haut="nexus"] .tresor-reset-eingabe:focus-visible {
+  outline: none;
+  border-color: var(--akzent);
+  box-shadow: var(--focus);
+}
+html[data-haut="nexus"] .tresor-tor-form .btn { padding: 11px 16px; border-radius: 12px; }
+html[data-haut="nexus"] .tresor-tor-fuss .back-link { margin-bottom: 0; }
+html[data-haut="nexus"] .tresor-guete-balken i { height: 4px; border-radius: 999px; }
+html[data-haut="nexus"] .tresor-recovery {
+  border-left-width: 1px;
+  border-radius: 12px;
+  box-shadow: inset 3px 0 0 var(--akzent);
+}
+html[data-haut="nexus"] .tresor-banner {
+  border-left-width: 1px;
+  border-radius: 14px;
+}
+html[data-haut="nexus"] .tresor-eintrag {
+  padding: 13px 12px;
+  border-radius: 10px;
+  transition: background var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .tresor-titel { font-weight: 700; }

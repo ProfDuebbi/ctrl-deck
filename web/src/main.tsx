@@ -19,6 +19,18 @@ import "./core/theme.css";
 // `html[data-haut="nexus"]` bzw. `.nx` — ohne die Haut ist es wirkungslos.
 import "./haut/nexus/nexus.css";
 import "./haut/nexus/bruecke.css";
+// Danach die Seiten, die die Haut nicht nur umfaerbt, sondern neu anordnet.
+// Sie stehen hinter der Bruecke, damit sie deren Regeln ueberschreiben.
+import "./haut/nexus/seiten/kopf.css";
+import "./haut/nexus/seiten/bausteine.css";
+import "./haut/nexus/seiten/uebersicht.css";
+import "./haut/nexus/seiten/aufgaben.css";
+import "./haut/nexus/seiten/termine.css";
+import "./haut/nexus/seiten/haushalt.css";
+import "./haut/nexus/seiten/fahrzeug.css";
+import "./haut/nexus/seiten/geburtstage.css";
+import "./haut/nexus/seiten/zeiterfassung.css";
+import "./haut/nexus/seiten/ablage.css";
 // Setzt `data-haut` und die Akzentfarbe, bevor React das erste Mal zeichnet.
 import "./haut/haut";
 

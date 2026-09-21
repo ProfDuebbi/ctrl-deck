@@ -1,0 +1,253 @@
+/* ======================================================================
+   HAUT „NEXUS" — Modul Aufgaben & Erinnerungen
+   ----------------------------------------------------------------------
+   Markup: `modules/aufgaben/View.tsx`.
+
+   Die Tafel stapelt jede Aufgabe als eigene Karte mit farbigem Streifen.
+   Das Kit fasst gleichartige Zeilen in EINE Liste (`.nx-list`/`.nx-row`):
+   eine Flaeche, Haarlinien dazwischen, Aufhellen beim Ueberfahren. Das
+   liest sich wie eine Liste statt wie ein Kartenstapel, und die Werkzeuge
+   einer Zeile tauchen erst auf, wenn man bei ihr ist.
+
+   Die Eingabe wird zum „Composer": das Titelfeld gross und allein in der
+   ersten Reihe — es ist das Einzige, was man immer ausfuellt —, alles
+   Uebrige klein darunter.
+   ====================================================================== */
+
+/* ── Hinweis auf die Benachrichtigungen ────────────────────────────────
+   Wie der Toast des Kits: Symbol in einer getoenten Kachel, getoente
+   Flaeche, kein Streifen an der Kante. */
+html[data-haut="nexus"] .notif-hint {
+  padding: 12px 14px 12px 12px;
+  border: 1px solid color-mix(in oklab, var(--akzent) 35%, var(--line));
+  border-radius: 16px;
+  background:
+    radial-gradient(60% 140% at 0% 50%, var(--akzent-soft), transparent 70%),
+    var(--surface);
+  font-size: 0.88rem;
+}
+html[data-haut="nexus"] .notif-hint > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+html[data-haut="nexus"] .notif-hint > span > svg:first-child,
+html[data-haut="nexus"] .notif-hint > span > .ikon:first-child {
+  box-sizing: content-box;
+  flex-shrink: 0;
+  padding: 9px;
+  border-radius: 11px;
+  color: var(--akzent);
+  background: var(--akzent-soft);
+}
+
+/* ── Der Composer ─────────────────────────────────────────────────────
+   `.entry-form` ist in der ganzen App das Eingabeformular. Diese Regeln
+   gelten deshalb nur dort, wo das Formular eine Aufgabenliste darunter
+   hat — sonst baut diese Datei die Formulare anderer Module mit um. */
+html[data-haut="nexus"] .entry-form:has(+ .task-list) {
+  gap: 10px;
+  padding: 16px;
+  border-radius: 18px;
+  background: var(--surface);
+}
+html[data-haut="nexus"] .entry-form:has(+ .task-list) > input.wide:first-child {
+  flex: 1 1 100%;
+  padding: 13px 16px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  border-radius: 12px;
+}
+html[data-haut="nexus"] .entry-form:has(+ .task-list) > input.wide:first-child::placeholder {
+  color: var(--text-faint);
+  font-weight: 500;
+}
+/* Die kleinen Felder: Pillen in einer Reihe, die Notiz nimmt den Rest. */
+html[data-haut="nexus"] .entry-form:has(+ .task-list) > select,
+html[data-haut="nexus"] .entry-form:has(+ .task-list) > input:not(.wide) {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  border-radius: 999px;
+}
+html[data-haut="nexus"] .entry-form:has(+ .task-list) > input.wide:not(:first-child) {
+  flex: 1 1 200px;
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  border-radius: 999px;
+}
+html[data-haut="nexus"] .entry-form:has(+ .task-list) > .btn { border-radius: 999px; }
+
+/* ── Die Liste ─────────────────────────────────────────────────────────
+   Eine Flaeche fuer alle Zeilen. Die leere Liste zeigt ihren Hinweis
+   stattdessen im gestrichelten Leerkasten des Kits (`.nx-empty`). */
+html[data-haut="nexus"] .task-list {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+}
+html[data-haut="nexus"] .task-list:has(> .empty) {
+  border-style: dashed;
+  border-color: var(--line-strong);
+  background: color-mix(in oklab, var(--surface) 60%, transparent);
+}
+html[data-haut="nexus"] .task-list > .empty {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+}
+
+html[data-haut="nexus"] .task-row {
+  position: relative;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px 14px 20px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  transition: background var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .task-row:last-child { border-bottom: none; }
+html[data-haut="nexus"] .task-row:hover { background: var(--surface-2); }
+
+/* Die Prioritaet: statt des Kantenstreifens ein kurzer, runder Balken
+   innen am Rand. Hoch bleibt rot (Regel 3 — das ist eine Warnung, kein
+   Schmuck), normal traegt den Akzent leise, niedrig gar nichts. */
+html[data-haut="nexus"] .task-row::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 16px;
+  bottom: 16px;
+  width: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+html[data-haut="nexus"] .task-row.prio-hoch::before {
+  background: var(--red);
+  box-shadow: 0 0 10px -1px var(--red);
+}
+html[data-haut="nexus"] .task-row.prio-normal::before {
+  background: color-mix(in oklab, var(--akzent) 55%, transparent);
+}
+html[data-haut="nexus"] .task-row.done::before { background: transparent; box-shadow: none; }
+
+/* Das Haekchen: ein weiches Quadrat wie `.nx-check`. Erledigt wird gruen
+   mit Schein — Gruen heisst erledigt, in beiden Haeuten. */
+html[data-haut="nexus"] .task-check {
+  width: 24px;
+  height: 24px;
+  margin-top: -2px;
+  border-radius: 8px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--bg-sunk);
+  transition:
+    border-color var(--t) var(--kurve),
+    background var(--t) var(--kurve),
+    box-shadow var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .task-check:hover {
+  border-color: var(--akzent);
+  box-shadow: 0 0 0 3px var(--akzent-soft);
+}
+html[data-haut="nexus"] .task-check.on {
+  background: var(--green);
+  border-color: var(--green);
+  color: #06140d;
+  box-shadow: 0 0 12px -2px var(--green);
+}
+
+html[data-haut="nexus"] .task-main { gap: 4px; }
+html[data-haut="nexus"] .task-titel { font-size: 0.95rem; font-weight: 650; }
+html[data-haut="nexus"] .task-notiz { font-size: 0.84rem; color: var(--text-faint); }
+html[data-haut="nexus"] .task-meta { margin-top: 4px; }
+
+html[data-haut="nexus"] .prio-flag {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  box-shadow: 0 0 10px -2px var(--red);
+}
+
+/* Faelligkeit und Wiederholung: Pillen wie `.nx-badge-st` — der Zustand
+   als getoente Flaeche mit Kante, nicht nur als Schriftfarbe. */
+html[data-haut="nexus"] .due-badge,
+html[data-haut="nexus"] .wdh-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--surface-2);
+}
+html[data-haut="nexus"] .due-soon {
+  color: var(--akzent);
+  border-color: color-mix(in oklab, var(--akzent) 45%, transparent);
+  background: var(--akzent-soft);
+}
+html[data-haut="nexus"] .due-today {
+  border-color: color-mix(in oklab, var(--amber) 45%, transparent);
+  background: color-mix(in oklab, var(--amber) 12%, transparent);
+}
+html[data-haut="nexus"] .due-overdue {
+  border-color: color-mix(in oklab, var(--red) 50%, transparent);
+  background: color-mix(in oklab, var(--red) 14%, transparent);
+}
+
+/* Bearbeiten und Loeschen: erst sichtbar, wenn man bei der Zeile ist —
+   bei zwanzig Aufgaben sind das sonst vierzig Knoepfe im Blickfeld. Mit
+   Tastatur (focus-within) und ohne Zeigegeraet stehen sie immer da,
+   sonst waeren sie unauffindbar. */
+html[data-haut="nexus"] .task-actions {
+  gap: 6px;
+  opacity: 0;
+  transition: opacity var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .task-row:hover .task-actions,
+html[data-haut="nexus"] .task-row:focus-within .task-actions { opacity: 1; }
+@media (hover: none) {
+  html[data-haut="nexus"] .task-actions { opacity: 1; }
+}
+html[data-haut="nexus"] .task-actions .icon-btn { width: 32px; height: 32px; border-radius: 10px; }
+html[data-haut="nexus"] .task-actions .icon-btn.danger:hover {
+  color: var(--red-soft);
+  border-color: color-mix(in oklab, var(--red) 55%, transparent);
+  background: color-mix(in oklab, var(--red) 12%, transparent);
+}
+
+/* Erledigte Zeilen treten zurueck, ohne blass zu werden: die ganze Zeile
+   auf halbe Deckkraft liesse auch das gruene Haekchen verblassen, und das
+   ist gerade die Aussage. */
+html[data-haut="nexus"] .task-row.done { opacity: 1; }
+html[data-haut="nexus"] .task-row.done .task-main { opacity: 0.55; }
+
+/* ── Abschnitt „Erledigt" ─────────────────────────────────────────────
+   Der Umschalter wird eine Pille; die Liste darunter bekommt Abstand. */
+html[data-haut="nexus"] .done-section { margin-top: 6px; }
+html[data-haut="nexus"] .done-toggle {
+  padding: 7px 14px 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--nx-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  transition: color var(--t) var(--kurve), border-color var(--t) var(--kurve), background var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .done-toggle:hover {
+  border-color: var(--akzent);
+  background: var(--surface-2);
+}
+html[data-haut="nexus"] .done-section > .task-list { margin-top: 12px; }
+
+@media (max-width: 620px) {
+  html[data-haut="nexus"] .task-row { padding: 12px 12px 12px 18px; gap: 10px; }
+  html[data-haut="nexus"] .entry-form:has(+ .task-list) > select,
+  html[data-haut="nexus"] .entry-form:has(+ .task-list) > input:not(.wide) { flex: 1 1 40%; }
+}

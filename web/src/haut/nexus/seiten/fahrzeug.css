@@ -1,0 +1,60 @@
+/* ======================================================================
+   HAUT „NEXUS" — Modul Fahrzeug
+   ----------------------------------------------------------------------
+   Markup: `modules/fahrzeug/View.tsx`. Jede Fahrzeugkarte ist ein Panel
+   (bausteine.css), die Fristen darin eine Zeilenliste mit Farbbalken.
+   Die Farbe sagt, wie eilig es ist — Rot abgelaufen, Bernstein dringend,
+   Blau bald — und bleibt damit die der Tafel.
+   ====================================================================== */
+
+html[data-haut="nexus"] .fz-karte { margin-bottom: 18px; }
+html[data-haut="nexus"] .fz-frist { padding-top: 11px; padding-bottom: 11px; }
+html[data-haut="nexus"] .fz-frist.s-abgelaufen {
+  --streifen: var(--red);
+  background: color-mix(in oklab, var(--red) 9%, transparent);
+}
+html[data-haut="nexus"] .fz-frist.s-dringend { --streifen: var(--amber); }
+html[data-haut="nexus"] .fz-frist.s-bald     { --streifen: var(--blue); }
+
+html[data-haut="nexus"] .fz-frist-label { font-weight: 600; }
+html[data-haut="nexus"] .fz-frist-datum { font-family: var(--nx-font-mono); font-size: 0.8rem; }
+
+/* Der Abstand („in 10 Tagen") als Pille — in der Farbe der Frist, wo
+   sie eine hat. */
+html[data-haut="nexus"] .fz-frist-rest {
+  min-width: 0;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+html[data-haut="nexus"] .fz-frist.s-abgelaufen .fz-frist-rest {
+  border-color: color-mix(in oklab, var(--red) 50%, transparent);
+  background: color-mix(in oklab, var(--red) 14%, transparent);
+}
+html[data-haut="nexus"] .fz-frist.s-dringend .fz-frist-rest {
+  border-color: color-mix(in oklab, var(--amber) 45%, transparent);
+  background: color-mix(in oklab, var(--amber) 12%, transparent);
+}
+html[data-haut="nexus"] .fz-frist.s-bald .fz-frist-rest {
+  color: var(--akzent);
+  border-color: color-mix(in oklab, var(--akzent) 45%, transparent);
+  background: var(--akzent-soft);
+}
+
+/* Fahrtenbuch */
+html[data-haut="nexus"] .fz-liste li {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--bg-sunk);
+}
+html[data-haut="nexus"] .fz-zahl { font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* Das Anlegeformular: Ueberschrift wie ein Panelkopf. */
+html[data-haut="nexus"] .fz-form-titel {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}

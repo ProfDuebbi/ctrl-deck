@@ -1,0 +1,118 @@
+/* ======================================================================
+   HAUT „NEXUS" — Module Laermprotokoll, Stechuhr, Zaehlerstaende
+   ----------------------------------------------------------------------
+   Drei Module, die dasselbe tun: Messwerte ueber die Zeit erfassen, mit
+   Kennzahlen oben, Diagramm in der Mitte und Tabelle unten. Tabelle,
+   Kennzahlkacheln und Balken formt `bausteine.css`; hier steht, was jedes
+   davon allein hat.
+   ====================================================================== */
+
+/* ── Laermprotokoll: die aufklappbare Statistik ────────────────────── */
+html[data-haut="nexus"] .stats-panel {
+  border-radius: 18px;
+}
+html[data-haut="nexus"] .stats-toggle {
+  padding: 14px 20px;
+  font-family: var(--nx-font-sans);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--text);
+}
+html[data-haut="nexus"] .stats-body { gap: 26px; padding: 4px 20px 22px; }
+html[data-haut="nexus"] .stat-chart-title {
+  font-family: var(--nx-font-sans);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-dim);
+}
+html[data-haut="nexus"] .bar-row { gap: 12px; }
+html[data-haut="nexus"] .bar-lbl { font-size: 0.8rem; }
+html[data-haut="nexus"] .bar-val { font-size: 0.8rem; font-weight: 800; }
+
+/* ── Stechuhr: die Stempelkarte ────────────────────────────────────────
+   Das Herzstueck der Seite. Im Kit eine grosse Buehne: Farbschein, die
+   Laufzeit riesig. Laeuft die Uhr, wird der Schein gruen — Gruen heisst
+   „laeuft/erledigt", in beiden Haeuten. */
+html[data-haut="nexus"] .punch-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: 26px 28px;
+  border-left-width: 1px;
+  border-radius: 20px;
+  background:
+    radial-gradient(60% 140% at 100% 0%, var(--akzent-soft), transparent 70%),
+    var(--surface);
+}
+html[data-haut="nexus"] .punch-card.running {
+  border-color: color-mix(in oklab, var(--green) 45%, var(--line));
+  background:
+    radial-gradient(60% 140% at 100% 0%, color-mix(in oklab, var(--green) 16%, transparent), transparent 70%),
+    var(--surface);
+  box-shadow: 0 18px 50px -30px var(--green);
+}
+html[data-haut="nexus"] .punch-state {
+  font-family: var(--nx-font-mono);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+}
+html[data-haut="nexus"] .punch-timer {
+  font-size: clamp(2.4rem, 1.8rem + 2vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+html[data-haut="nexus"] .punch-btn { border-radius: 12px; padding: 12px 26px; }
+html[data-haut="nexus"] .punch-btn.stop {
+  background: var(--red);
+  box-shadow: 0 10px 26px -12px var(--red);
+}
+html[data-haut="nexus"] .punch-controls .proj-select { border-radius: 12px; padding: 11px 14px; }
+
+/* Wochennavigation: Pfeile rund, der Zeitraum als Pille dazwischen. */
+html[data-haut="nexus"] .week-nav .icon-btn { border-radius: 999px; width: 32px; height: 32px; }
+html[data-haut="nexus"] .week-label {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--nx-font-mono);
+  font-size: 0.8rem;
+}
+html[data-haut="nexus"] .week-sum .grad { font-size: 1.1rem; font-weight: 800; }
+
+/* Zeit je Projekt */
+html[data-haut="nexus"] .balken-zeile { padding: 9px 12px; border-radius: 12px; }
+html[data-haut="nexus"] .balken-zeile.aktiv {
+  border-color: color-mix(in oklab, var(--akzent) 45%, transparent);
+  background: var(--akzent-soft);
+}
+html[data-haut="nexus"] .balken-wert { font-weight: 700; }
+html[data-haut="nexus"] .proj-zeile { border-radius: 10px; }
+html[data-haut="nexus"] .farb-punkt { border-radius: 999px; }
+
+/* ── Zaehlerstaende ────────────────────────────────────────────────── */
+html[data-haut="nexus"] .meter-title { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; }
+html[data-haut="nexus"] .meter-dot { box-shadow: 0 0 10px -1px var(--accent, var(--akzent)); }
+
+/* Die Kostenrechnung: Abschnittstitel wie Kicker, die Summen fett, das
+   Ergebnis als getoente Flaeche. Gruen „gut", Rot „Nachzahlung" bleiben. */
+html[data-haut="nexus"] .kosten-titel {
+  margin-top: 6px;
+  font-family: var(--nx-font-mono);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--akzent);
+}
+html[data-haut="nexus"] .kosten-zeile { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+html[data-haut="nexus"] .kosten-zeile strong { font-weight: 800; }
+html[data-haut="nexus"] .kosten-ergebnis {
+  margin-top: 10px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  font-weight: 700;
+}

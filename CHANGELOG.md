@@ -20,6 +20,22 @@ was in der Oberfläche steht.
   **Einstellungen → Aussehen**; die Wahl gilt für den Browser, in dem du
   gerade sitzt, nicht für das Dashboard. Alle Module ziehen ohne eigenes
   Zutun mit.
+- **Nexus baut die Seiten neu auf, statt sie nur umzufärben.** Den Anfang
+  machen die Übersicht und die Aufgaben: Der Kopf der Startseite hat keinen Rahmen mehr:
+  Das Kopfbild ist der Hintergrund, randlos von der Schiene bis zum Rand, und
+  läuft nach unten weich in die Seite aus. Die Begrüßung steht groß darauf,
+  die Uhr frei daneben, das Wetter als Glasleiste. Ohne Bild leuchtet dort
+  die Akzentfarbe. Die Modulkarten sind Kacheln wie im Nexus-Kit: jedes Modul
+  hat einen eigenen Farbton als Schleier, sein Symbol steht groß und blass
+  in der Ecke, und die wichtigste Zahl leuchtet in der Kachelfarbe. Die Aufgaben stehen in einer Liste statt
+  in einem Kartenstapel, und das Titelfeld steht groß und für sich allein.
+  **Inzwischen sind alle Module umgebaut:** Kennzahlen stehen als eigene
+  Kacheln, Termine, Verträge, Fahrzeugfristen und die nächsten Geburtstage
+  als durchgehende Listen mit rundem Farbbalken, Reiter als eingelassene
+  Leiste, Filter als Pillen. Die Stempeluhr ist eine große Bühne, die grün
+  leuchtet, solange sie läuft, und der Tresor empfängt mit einem
+  leuchtenden Schloss. Bearbeiten und Löschen erscheinen in Tabellen und
+  Listen erst, wenn man bei der Zeile ist.
 - **Eine Farbe färbt alles.** In der Haut „Nexus" hängt das ganze Bild an
   einer Akzentfarbe: Knöpfe, der aktive Punkt in der Schiene, der Fokusring
   und der Marken-Verlauf. Fünf Vorschläge stehen bereit, jede andere Farbe

@@ -3,6 +3,8 @@ import { Icon } from "./Icon";
 import { verschiebe } from "./moduleOrder";
 import { mitUebergang, uebergangsName } from "./bewegung";
 import type { DashboardModule, PlannedModule } from "./modules";
+import { useHaut } from "../haut/haut";
+import { farbwinkel } from "../haut/nexus/farbwinkel";
 
 /**
  * Die Kachelwand der Startseite — umsortierbar.
@@ -29,6 +31,11 @@ export function ModuleGrid({
   // wird erst beim Loslassen.
   const [vorschau, setVorschau] = useState<string[] | null>(null);
   const [ansage, setAnsage] = useState("");
+  // Nur fuer die Haut „Nexus": das grosse, blasse Symbol in der Ecke der
+  // Kachel (`.nx-tile-wash` im Kit). Die Tafel kennt es nicht und bekommt
+  // es deshalb gar nicht erst gerendert, statt es per CSS zu verstecken.
+  const { haut } = useHaut();
+  const nexus = haut === "nexus";
 
   const ids = module.map((m) => m.id);
   const anzeige = vorschau ?? ids;
@@ -73,6 +80,7 @@ export function ModuleGrid({
           <article
             className={`card clickable accent-${m.accent} ${ziehId === m.id ? "zieht" : ""}`}
             key={m.id}
+            style={farbwinkel(m.id) as React.CSSProperties}
             draggable={griffAktiv === m.id}
             onDragStart={(e) => {
               setZiehId(m.id);
@@ -90,6 +98,9 @@ export function ModuleGrid({
             onDrop={(e) => { e.preventDefault(); beenden(); }}
             onDragEnd={beenden}
           >
+            {nexus && (
+              <span className="card-wash" aria-hidden="true"><Icon name={m.icon} /></span>
+            )}
             <div className="card-top">
               <span
                 className="card-ico"
@@ -121,7 +132,11 @@ export function ModuleGrid({
         ))}
 
         {geplant.map((m) => (
-          <article className={`card planned accent-${m.accent}`} key={m.title}>
+          <article
+            className={`card planned accent-${m.accent}`}
+            key={m.title}
+            style={farbwinkel(m.title) as React.CSSProperties}
+          >
             <div className="card-top">
               <span className="card-ico"><Icon name={m.icon} /></span>
               <span className="badge">geplant</span>
