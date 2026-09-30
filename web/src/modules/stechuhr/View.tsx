@@ -4,7 +4,7 @@ import {
   spanne, monatKurz,
   type TimeEntry, type Status, type Project, type Stats, type VerlaufRow, type Zeitraum,
 } from "./api";
-import { ProjectsModal } from "./Projects";
+import { ProjektePanel } from "./Projects";
 import { useConfirm } from "../../core/ui";
 import { Icon } from "../../core/Icon";
 
@@ -33,7 +33,6 @@ export function View() {
   const [form, setForm] = useState(leeresFormular());
   const [editId, setEditId] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [zeigeProjekte, setZeigeProjekte] = useState(false);
   const [stempelProjekt, setStempelProjekt] = useState<string>("");
 
   const datumRef = useRef<HTMLInputElement>(null);
@@ -94,17 +93,23 @@ export function View() {
 
   // --- Stempeluhr ---------------------------------------------------------
 
+  async function ausstempeln() {
+    const r = await su.punchOut();
+    await Promise.all([reloadStatus(), alles()]);
+    flash(`Ausgestempelt: ${fmtHM(r.minuten)} erfasst.`);
+  }
+
+  async function einstempeln(projektId: number | null) {
+    await su.punchIn(projektId);
+    setStempelProjekt(projektId ? String(projektId) : "");
+    await reloadStatus();
+    const p = projects.find((x) => x.id === projektId);
+    flash(p ? `Eingestempelt auf ${p.name}.` : "Eingestempelt. Die Zeit läuft.");
+  }
+
   async function punch() {
-    if (status.running) {
-      const r = await su.punchOut();
-      await Promise.all([reloadStatus(), alles()]);
-      flash(`Ausgestempelt: ${fmtHM(r.minuten)} erfasst.`);
-    } else {
-      await su.punchIn(Number(stempelProjekt) || null);
-      await reloadStatus();
-      const p = projects.find((x) => x.id === Number(stempelProjekt));
-      flash(p ? `Eingestempelt auf ${p.name}.` : "Eingestempelt. Die Zeit läuft.");
-    }
+    if (status.running) await ausstempeln();
+    else await einstempeln(Number(stempelProjekt) || null);
   }
 
   async function wechsle(projektId: number) {
@@ -114,6 +119,10 @@ export function View() {
     const p = projects.find((x) => x.id === projektId);
     flash(r.vorher ? `${fmtHM(r.vorher.minuten)} gebucht — weiter auf ${p?.name}.` : `Eingestempelt auf ${p?.name}.`);
   }
+
+  /** Aus der Projektuebersicht: einstempeln, oder — wenn schon etwas laeuft — umsteigen. */
+  const starteProjekt = (projektId: number) =>
+    status.running ? wechsle(projektId) : einstempeln(projektId);
 
   // --- Formular -----------------------------------------------------------
 
@@ -242,6 +251,16 @@ export function View() {
         </div>
       )}
 
+      {/* Projekte: eroeffnen, beenden, direkt draufstempeln */}
+      <ProjektePanel
+        projects={projects}
+        laufendId={status.projektId}
+        laeuft={status.running}
+        onStarten={starteProjekt}
+        onAusstempeln={ausstempeln}
+        onChanged={alles}
+      />
+
       {/* Zeitraum + Summe */}
       <div className="view-toolbar">
         <div className="zeitraum-wahl">
@@ -274,7 +293,6 @@ export function View() {
       <div className="panel proj-uebersicht">
         <div className="panel-head">
           <h3>Zeit je Projekt <span className="panel-sub">({label})</span></h3>
-          <button className="btn ghost small" onClick={() => setZeigeProjekte(true)}>Projekte verwalten</button>
         </div>
         {stats && stats.proProjekt.length > 0 ? (
           <ul className="proj-balken">
@@ -291,6 +309,8 @@ export function View() {
                     <span className="balken-name">
                       <span className={`proj-punkt p-${s.farbe}`} />
                       {s.name}
+                      {/* Ein beendetes Projekt zaehlt weiter mit — das soll man hier sehen. */}
+                      {s.archiviert ? <span className="proj-tag">beendet</span> : null}
                     </span>
                     <span className="balken-spur">
                       <span className={`balken-fuell p-${s.farbe}`} style={{ width: `${(s.minuten / max) * 100}%` }} />
@@ -386,13 +406,6 @@ export function View() {
         </table>
       </div>
 
-      {zeigeProjekte && (
-        <ProjectsModal
-          projects={projects}
-          onClose={() => setZeigeProjekte(false)}
-          onChanged={alles}
-        />
-      )}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );

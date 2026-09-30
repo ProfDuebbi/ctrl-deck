@@ -48,6 +48,22 @@ was in der Oberfläche steht.
   breiten Schirm blieben links und rechts sonst hunderte Pixel leer,
   ausgerechnet auf einer Kachelwand, deren Zweck es ist, viel auf einmal zu
   zeigen. Vorgabe ist „Voll".
+- **Die Stechuhr hat eine Projektübersicht.** Bisher ließen sich Projekte nur
+  aus einer fertigen Liste auswählen; wer eines anlegen, umbenennen oder
+  abschließen wollte, musste erst ein Fenster öffnen. Jetzt stehen sie offen
+  auf der Seite: jedes Projekt mit erfasster Zeit, Zeit dieser Woche, Zahl der
+  Einträge und letztem Tag. In jeder Zeile lässt sich direkt **einstempeln**
+  (läuft schon etwas, heißt der Knopf „Wechseln" und bucht die laufende Zeit
+  weg), oben im Feld ein **neues Projekt eröffnen**, und rechts eines
+  **beenden**. Beendete Projekte liegen zugeklappt darunter und lassen sich
+  jederzeit wieder öffnen.
+- **„Beenden" ist nicht „Löschen".** Ein beendetes Projekt verschwindet nur
+  aus der Stempelauswahl. Seine Einträge behalten Name und Farbe, zählen
+  weiter in jeder Auswertung und tragen dort das Kennzeichen „beendet".
+  Läuft die Uhr noch auf dem Projekt, wird sie vorher ausgestempelt, damit die
+  Minuten gebucht werden statt ins Leere zu laufen. Nur das **Löschen** löst
+  die Zuordnung — es sagt jetzt vorher, wie viele Stunden das betrifft, und
+  verweist auf „Beenden".
 
 ### Behoben
 - **Zwei Menüpunkte gleichzeitig als aktuelle Seite markiert.** Stand man in

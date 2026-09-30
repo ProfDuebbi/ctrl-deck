@@ -91,8 +91,91 @@ html[data-haut="nexus"] .balken-zeile.aktiv {
   background: var(--akzent-soft);
 }
 html[data-haut="nexus"] .balken-wert { font-weight: 700; }
-html[data-haut="nexus"] .proj-zeile { border-radius: 10px; }
 html[data-haut="nexus"] .farb-punkt { border-radius: 999px; }
+
+/* ── Stechuhr: die Projektuebersicht ───────────────────────────────────
+   Eine Zeilenliste mit Farbstreifen — dafuer hat `bausteine.css` schon die
+   Form des Kits: EINE Flaeche, Haarlinien zwischen den Zeilen, der farbige
+   Rand wird ein kurzer runder Balken innen am Rand. Die Projektfarbe steckt
+   als `--pf` schon in der Zeile (`p-blue` & Co.), sie wird hier nur an
+   `--streifen` weitergegeben.
+
+   Das laufende Projekt bleibt gruen, das beendete blass: Regel 3 gilt auch
+   hier, Gruen faerbt sich nicht mit dem Akzent um. */
+html[data-haut="nexus"] .proj-liste {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+html[data-haut="nexus"] .proj-zeile {
+  --streifen: var(--pf, var(--akzent));
+  position: relative;
+  padding: 11px 16px 11px 24px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  transition: background var(--t) var(--kurve);
+}
+html[data-haut="nexus"] .proj-zeile:last-child { border-bottom: none; }
+html[data-haut="nexus"] .proj-zeile:hover { background: var(--surface-2); }
+html[data-haut="nexus"] .proj-zeile::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 11px;
+  bottom: 11px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--streifen);
+  box-shadow: 0 0 10px -2px var(--streifen);
+}
+html[data-haut="nexus"] .proj-zeile.laufend {
+  --streifen: var(--green);
+  background: color-mix(in oklab, var(--green) 7%, var(--surface-2));
+}
+/* In der Liste ist der Punkt doppelt — den Streifen sieht man schon. */
+html[data-haut="nexus"] .proj-zeile > .proj-punkt { display: none; }
+html[data-haut="nexus"] .proj-liste > .empty { padding: 18px 20px; text-align: left; }
+html[data-haut="nexus"] .proj-name { font-weight: 700; letter-spacing: -0.01em; }
+html[data-haut="nexus"] .proj-zeit {
+  font-family: var(--nx-font-mono);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+html[data-haut="nexus"] .proj-meta { font-size: 0.74rem; }
+html[data-haut="nexus"] .proj-laeuft {
+  font-family: var(--nx-font-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+html[data-haut="nexus"] .proj-tag {
+  font-family: var(--nx-font-mono);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+html[data-haut="nexus"] .proj-add input { flex: 1 1 200px; }
+html[data-haut="nexus"] .proj-gruppe { border-top-style: dashed; margin-top: 10px; padding-top: 10px; }
+html[data-haut="nexus"] .proj-gruppe-kopf {
+  border-radius: 999px;
+  font-family: var(--nx-font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+html[data-haut="nexus"] .proj-gruppe-hinweis {
+  font-family: var(--nx-font-sans);
+  font-size: 0.72rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
 
 /* ── Zaehlerstaende ────────────────────────────────────────────────── */
 html[data-haut="nexus"] .meter-title { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; }
