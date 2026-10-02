@@ -8,7 +8,7 @@ Diese Datei ist die einzige Quelle: Das Programm liest sie beim Aufruf von
 und darunter Punkte mit `-`. Wer eine Zeile ergänzt, ändert damit zugleich das,
 was in der Oberfläche steht.
 
-## Unveröffentlicht
+## 0.4.0 — 03.10.2026
 
 ### Neu
 - **Ein zweites Aussehen: „Nexus".** Die Oberfläche kann jetzt zwei Häute
