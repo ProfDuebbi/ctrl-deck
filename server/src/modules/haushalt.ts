@@ -265,7 +265,7 @@ async function einnahmenAusfuehren(opts: { nurId?: number; vorziehen?: boolean }
         // Schon von Hand gebucht? Dann diese Buchung als die des Monats
         // nehmen, statt eine zweite anzulegen. Erkannt am Namen als Empfaenger
         // im selben Monat und einem Betrag hoechstens 10 % daneben — der Name
-        // allein reicht nicht, „Taschengeld" steht auch an Leihgaben und Pfand.
+        // allein reicht nicht, ein haeufiger Name steht auch an ganz anderen Eingaengen.
         const vonHand = await db.eine<{ id: number; datum: string }>(
           `SELECT b.id, b.datum FROM buchungen b
             WHERE b.art = 'eingang' AND substr(b.datum, 1, 7) = ?
@@ -950,7 +950,7 @@ async function uebertragVor(periode: string): Promise<number> {
        FROM buchungen WHERE datum >= ? AND datum < ?`,
     `${ab}-01`, `${periode}-01`
   ))!;
-  // Gegen Gleitkomma-Krumen wie 0.049999999 — es geht um Cent.
+  // Gegen Gleitkomma-Krumen hinter der zweiten Nachkommastelle — es geht um Cent.
   return Math.round(r.s * 100) / 100;
 }
 

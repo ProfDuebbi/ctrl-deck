@@ -492,12 +492,12 @@ export function Fixkosten() {
             <label>Altes Konto
               <Waehler
                 wert={umzug.von} liste={summary?.jeKonto.map((k) => k.name).filter((k) => k !== "ohne Konto") ?? []}
-                platzhalter="z. B. Commerzbank" onWahl={(v) => setUmzug({ ...umzug, von: v, zahl: null, fehler: null })}
+                platzhalter="bisheriges Konto" onWahl={(v) => setUmzug({ ...umzug, von: v, zahl: null, fehler: null })}
               />
             </label>
             <label>Neues Konto
               <Waehler
-                wert={umzug.nach} liste={konten} platzhalter="z. B. Revolut"
+                wert={umzug.nach} liste={konten} platzhalter="neues Konto"
                 onWahl={(v) => setUmzug({ ...umzug, nach: v, fehler: null })}
               />
             </label>

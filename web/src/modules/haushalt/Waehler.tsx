@@ -6,7 +6,7 @@ import { useId } from "react";
  * Vorher waren das `<select>`-Felder: Wer bei einer Bank war, die nicht in der
  * Liste stand, oder das Konto wechselte, kam nicht weiter. Jetzt lässt sich
  * alles eintippen; die Liste schlägt nur vor. Tippt man einen vorhandenen Wert
- * in anderer Schreibung („revolut"), wird beim Verlassen die vorhandene
+ * in anderer Schreibung („girokonto"), wird beim Verlassen die vorhandene
  * genommen — sonst stünde dasselbe Konto bald zweimal in jeder Auswertung.
  */
 export function Waehler({ wert, onWahl, liste, platzhalter, title, className, disabled }: {
