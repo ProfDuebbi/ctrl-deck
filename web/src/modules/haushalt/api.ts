@@ -195,6 +195,15 @@ export const hh = {
   fixkostBuchen: (id: number, b: { betrag: number; datum: string }) =>
     api<{ id: number }>(`${base}/fixkosten/${id}/buchen`, { method: "POST", body: JSON.stringify(b) }),
 
+  umzugVorschau: (von: string) =>
+    api<{ fixkosten: number; einnahmen: number; buchungen: number }>(
+      `${base}/konto-umzug?von=${encodeURIComponent(von)}`
+    ),
+  umziehen: (von: string, nach: string) =>
+    api<{ fixkosten: number; einnahmen: number }>(
+      `${base}/konto-umzug`, { method: "POST", body: JSON.stringify({ von, nach }) }
+    ),
+
   uebertrag: (monat: string) => api<Uebertrag>(`${base}/uebertrag?monat=${monat}`),
   setUebertragAb: (ab: string | null) =>
     api(`${base}/uebertrag`, { method: "PUT", body: JSON.stringify({ ab }) }),

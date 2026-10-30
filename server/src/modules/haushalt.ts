@@ -882,6 +882,46 @@ router.delete("/buchungen/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
+// --- Konto umziehen ------------------------------------------------------------
+
+/*
+ * Bankwechsel: Fixkosten und Einnahmen, die vom alten Konto laufen, auf das
+ * neue umstellen. Buchungen bleiben bewusst, wo sie sind — die sind damals
+ * wirklich ueber das alte Konto gelaufen, und so soll es im Jahresbericht und
+ * in den Auswertungen auch stehen bleiben.
+ */
+async function umzugZaehlen(von: string) {
+  const n = async (tabelle: "fixkosten" | "einnahmen" | "buchungen") =>
+    (await db.eine<{ n: number }>(
+      `SELECT COUNT(*) n FROM ${tabelle} WHERE LOWER(TRIM(konto)) = LOWER(TRIM(?))`, von
+    ))!.n;
+  return { fixkosten: await n("fixkosten"), einnahmen: await n("einnahmen"), buchungen: await n("buchungen") };
+}
+
+router.get("/konto-umzug", async (req, res) => {
+  const von = String(req.query.von ?? "").trim();
+  if (!von) return res.status(400).json({ error: "Altes Konto fehlt" });
+  res.json(await umzugZaehlen(von));
+});
+
+router.post("/konto-umzug", async (req, res) => {
+  const von = String(req.body?.von ?? "").trim();
+  const nach = String(req.body?.nach ?? "").trim();
+  if (!von || !nach) return res.status(400).json({ error: "Bitte altes und neues Konto angeben." });
+  if (von.toLowerCase() === nach.toLowerCase())
+    return res.status(400).json({ error: "Altes und neues Konto sind dasselbe." });
+  const ergebnis = await db.transaktion(async () => {
+    const f = await db.schreibe(
+      "UPDATE fixkosten SET konto = ? WHERE LOWER(TRIM(konto)) = LOWER(TRIM(?))", nach, von
+    );
+    const e = await db.schreibe(
+      "UPDATE einnahmen SET konto = ? WHERE LOWER(TRIM(konto)) = LOWER(TRIM(?))", nach, von
+    );
+    return { fixkosten: f.zeilen, einnahmen: e.zeilen };
+  });
+  res.json(ergebnis);
+});
+
 // --- Uebertrag aus dem Vormonat --------------------------------------------
 
 /*

@@ -33,6 +33,11 @@ was in der Oberfläche steht.
   auseinander), ist abgewählt und wird der vorhandenen Buchung zugeordnet.
   Die Kategorie wird aus früheren Buchungen beim selben Empfänger
   vorgeschlagen.
+- **Konto wechseln.** Bei einem Bankwechsel stellt **Fixkosten → Von
+  welchem Konto → Konto wechseln** alle Fixkosten und wiederkehrenden
+  Einnahmen mit einem Schritt vom alten auf das neue Konto um. Vorher steht
+  da, wie viele betroffen sind. Bisherige Buchungen bleiben beim alten
+  Konto, denn darüber sind sie damals gelaufen.
 
 ### Geändert
 - **Konto und Kategorie frei eintragen.** Statt einer festen Auswahl sind

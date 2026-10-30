@@ -50,6 +50,11 @@ export function Fixkosten() {
   const [vertragModal, setVertragModal] = useState<VertragForm | null>(null);
   const [buchModal, setBuchModal] = useState<{ pos: Fixkost; betrag: string; datum: string } | null>(null);
   const [buchFehler, setBuchFehler] = useState<string | null>(null);
+  const [umzug, setUmzug] = useState<{
+    von: string; nach: string;
+    zahl: { fixkosten: number; einnahmen: number; buchungen: number } | null;
+    fehler: string | null;
+  } | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 3500); };
@@ -169,6 +174,32 @@ export function Fixkosten() {
     setBuchModal(null);
     await laden();
     flash(`${buchModal.pos.name}: ${euro(betrag)} gebucht.`);
+  }
+
+  // --- Konto wechseln ------------------------------------------------------
+
+  // Beim Tippen des alten Kontos zeigen, was betroffen wäre — erst danach umstellen.
+  const umzugVon = umzug?.von.trim() ?? "";
+  useEffect(() => {
+    if (!umzugVon) return;
+    let aktiv = true;
+    hh.umzugVorschau(umzugVon)
+      .then((zahl) => { if (aktiv) setUmzug((u) => (u ? { ...u, zahl } : u)); })
+      .catch(() => { /* Vorschau ist Kür */ });
+    return () => { aktiv = false; };
+  }, [umzugVon]);
+
+  async function umziehen() {
+    if (!umzug) return;
+    try {
+      const r = await hh.umziehen(umzug.von, umzug.nach);
+      setUmzug(null);
+      await laden();
+      auswahlNeuLaden();
+      flash(`${r.fixkosten} Fixkosten und ${r.einnahmen} ${r.einnahmen === 1 ? "Einnahme laufen" : "Einnahmen laufen"} jetzt über ${umzug.nach.trim()}.`);
+    } catch (e) {
+      setUmzug({ ...umzug, fehler: (e as Error).message });
+    }
   }
 
   // --- Verträge ------------------------------------------------------------
@@ -302,6 +333,9 @@ export function Fixkosten() {
         <div className="panel">
           <div className="panel-head">
             <h3>Von welchem Konto</h3>
+            <button className="btn ghost small" onClick={() => setUmzug({ von: "", nach: "", zahl: null, fehler: null })}>
+              Konto wechseln
+            </button>
           </div>
           <div className="konto-chips">
             {summary.jeKonto.map((k) => (
@@ -448,6 +482,43 @@ export function Fixkosten() {
           <div className="modal-actions">
             <button className="btn ghost" onClick={() => setVertragModal(null)}>Abbrechen</button>
             <button className="btn" onClick={saveVertrag}>Speichern</button>
+          </div>
+        </Modal>
+      )}
+
+      {umzug && (
+        <Modal title="Konto wechseln" onClose={() => setUmzug(null)}>
+          <div className="meter-modal-fields">
+            <label>Altes Konto
+              <Waehler
+                wert={umzug.von} liste={summary?.jeKonto.map((k) => k.name).filter((k) => k !== "ohne Konto") ?? []}
+                platzhalter="z. B. Commerzbank" onWahl={(v) => setUmzug({ ...umzug, von: v, zahl: null, fehler: null })}
+              />
+            </label>
+            <label>Neues Konto
+              <Waehler
+                wert={umzug.nach} liste={konten} platzhalter="z. B. Revolut"
+                onWahl={(v) => setUmzug({ ...umzug, nach: v, fehler: null })}
+              />
+            </label>
+            {umzug.zahl && (
+              <p className="modal-hinweis">
+                Betrifft {umzug.zahl.fixkosten} Fixkosten und {umzug.zahl.einnahmen}{" "}
+                {umzug.zahl.einnahmen === 1 ? "wiederkehrende Einnahme" : "wiederkehrende Einnahmen"}.
+                {umzug.zahl.buchungen > 0 && <> Die {umzug.zahl.buchungen} bisherigen Buchungen bleiben beim alten Konto,
+                denn darüber sind sie damals gelaufen.</>}
+              </p>
+            )}
+            {umzug.fehler && <div className="form-error" role="alert"><Icon name="warnung" /> {umzug.fehler}</div>}
+          </div>
+          <div className="modal-actions">
+            <button className="btn ghost" onClick={() => setUmzug(null)}>Abbrechen</button>
+            <button
+              className="btn" onClick={umziehen}
+              disabled={!umzug.von.trim() || !umzug.nach.trim() || (umzug.zahl != null && umzug.zahl.fixkosten + umzug.zahl.einnahmen === 0)}
+            >
+              Umstellen
+            </button>
           </div>
         </Modal>
       )}
