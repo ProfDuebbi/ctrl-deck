@@ -5,7 +5,8 @@ import {
 } from "./api";
 import { useConfirm, Modal } from "../../core/ui";
 import { Icon } from "../../core/Icon";
-import { useKategorien, useKonten } from "./auswahl";
+import { useKategorien, useKonten, auswahlNeuLaden } from "./auswahl";
+import { Waehler } from "./Waehler";
 import { Import } from "./Import";
 
 
@@ -100,6 +101,7 @@ export function Buchungen() {
     setEditId(null);
     setFormError(null);
     await laden();
+    auswahlNeuLaden();
     flash(editId != null ? "Buchung aktualisiert." : `${euro(betrag)} gebucht.`);
   }
 
@@ -195,14 +197,8 @@ export function Buchungen() {
         <input ref={datumRef} type="date" title="Datum" value={form.datum} onChange={(e) => upd({ datum: e.target.value })} />
         <input ref={betragRef} placeholder="Betrag €" value={form.betrag} onChange={(e) => upd({ betrag: e.target.value })} style={{ maxWidth: 110 }} inputMode="decimal" />
         <input placeholder="Empfänger" value={form.empfaenger} onChange={(e) => upd({ empfaenger: e.target.value })} list="hh-empfaenger" style={{ minWidth: 150 }} />
-        <select value={form.kategorie} onChange={(e) => upd({ kategorie: e.target.value })} title="Kategorie">
-          <option value="">— Kategorie —</option>
-          {kategorien.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
-        <select value={form.konto} onChange={(e) => upd({ konto: e.target.value })} title="Konto">
-          <option value="">— Konto —</option>
-          {konten.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
+        <Waehler wert={form.kategorie} onWahl={(v) => upd({ kategorie: v })} liste={kategorien} platzhalter="Kategorie" className="hh-waehler" />
+        <Waehler wert={form.konto} onWahl={(v) => upd({ konto: v })} liste={konten} platzhalter="Konto" className="hh-waehler" />
         <input className="wide" placeholder="Notiz" value={form.notiz} onChange={(e) => upd({ notiz: e.target.value })} />
         <button className="btn" type="submit">{editId != null ? "Speichern" : <><Icon name="plus" /> Buchen</>}</button>
         {editId != null && (

@@ -34,6 +34,20 @@ was in der Oberfläche steht.
   Die Kategorie wird aus früheren Buchungen beim selben Empfänger
   vorgeschlagen.
 
+### Geändert
+- **Konto und Kategorie frei eintragen.** Statt einer festen Auswahl sind
+  es jetzt Eingabefelder mit Vorschlagsliste: Wer bei einer Bank ist, die
+  nicht vorkommt, oder das Konto wechselt, tippt sie einfach ein. Die
+  Vorschläge stehen nach dem Alphabet und kommen aus Buchungen, Fixkosten
+  und Einnahmen. Ein vorhandener Wert in anderer Schreibung wird an den
+  vorhandenen angeglichen, damit dasselbe Konto nicht zweimal auftaucht.
+
+### Behoben
+- **Wiederkehrende Einnahmen buchen sich nicht mehr doppelt**, wenn sie im
+  Monat schon von Hand gebucht wurden. Eine Buchung mit dem Namen der
+  Einnahme als Empfänger und einem Betrag höchstens 10 % daneben gilt als
+  die Buchung des Monats und bekommt das Zeichen für wiederkehrend.
+
 ## 0.4.0 — 03.10.2026
 
 ### Neu

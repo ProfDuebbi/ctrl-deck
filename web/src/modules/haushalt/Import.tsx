@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { hh, euro, datumLabel, type ImportVorschau, type ImportZeile } from "./api";
 import { Icon } from "../../core/Icon";
-import { useKategorien, useKonten } from "./auswahl";
+import { useKategorien, useKonten, auswahlNeuLaden } from "./auswahl";
+import { Waehler } from "./Waehler";
 
 /** Banken exportieren mal UTF-8, mal Windows-1252 — erst streng UTF-8, sonst das andere. */
 async function leseText(datei: File): Promise<string> {
@@ -81,6 +82,7 @@ export function Import({ onFertig, onSchliessen }: {
       const teile = [`${r.angelegt} ${r.angelegt === 1 ? "Buchung" : "Buchungen"} übernommen`];
       if (r.zugeordnet) teile.push(`${r.zugeordnet} vorhandene zugeordnet`);
       if (r.doppelt) teile.push(`${r.doppelt} waren schon da`);
+      auswahlNeuLaden();
       onFertig(teile.join(", ") + ".");
     } catch (e) {
       setFehler((e as Error).message);
@@ -103,10 +105,7 @@ export function Import({ onFertig, onSchliessen }: {
             onChange={(e) => { datei(e.target.files?.[0]); e.target.value = ""; }}
           />
         </label>
-        <select value={konto} onChange={(e) => setKonto(e.target.value)} title="Konto, auf das gebucht wird">
-          <option value="">— Konto —</option>
-          {konten.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
+        <Waehler wert={konto} onWahl={setKonto} liste={konten} platzhalter="Konto" title="Konto, auf das gebucht wird" className="hh-waehler" />
         <p className="modal-hinweis">
           Im Onlinebanking die Umsätze als CSV exportieren (Commerzbank, Sparkasse, ING, DKB, PayPal …).
           Die Datei wird nur von diesem CTRL·DECK gelesen. Vor dem Übernehmen siehst du jede Zeile.
@@ -154,14 +153,11 @@ export function Import({ onFertig, onSchliessen }: {
                       />
                     </td>
                     <td>
-                      <select
-                        value={z.kategorie ?? ""} disabled={z.status === "importiert"}
-                        onChange={(e) => setze(z.ref, { kategorie: e.target.value || null })}
-                      >
-                        <option value="">—</option>
-                        {z.kategorie && !kategorien.includes(z.kategorie) && <option value={z.kategorie}>{z.kategorie}</option>}
-                        {kategorien.map((k) => <option key={k} value={k}>{k}</option>)}
-                      </select>
+                      <Waehler
+                        wert={z.kategorie ?? ""} liste={kategorien} platzhalter="Kategorie"
+                        className="hh-import-feld" disabled={z.status === "importiert"}
+                        onWahl={(v) => setze(z.ref, { kategorie: v || null })}
+                      />
                     </td>
                     <td className="cell-note">
                       {z.status === "neu" && "neu"}

@@ -9,7 +9,8 @@ import {
 import { ag } from "../aufgaben/api";
 import { useConfirm, Modal } from "../../core/ui";
 import { Icon } from "../../core/Icon";
-import { useKategorien, useKonten } from "./auswahl";
+import { useKategorien, useKonten, auswahlNeuLaden } from "./auswahl";
+import { Waehler } from "./Waehler";
 
 const leeresFormular = () => ({
   name: "", betrag: "", intervall: "monatlich" as Intervall,
@@ -112,6 +113,7 @@ export function Fixkosten() {
     setEditId(null);
     setFormError(null);
     await laden();
+    auswahlNeuLaden();
     flash(editId != null ? "Position aktualisiert." : `„${name}" hinzugefügt.`);
   }
 
@@ -319,14 +321,8 @@ export function Fixkosten() {
           {INTERVALLE.map((i) => <option key={i.wert} value={i.wert}>{i.label}</option>)}
         </select>
         <input placeholder="fällig (Tag/Monat)" value={form.faellig} onChange={(e) => upd({ faellig: e.target.value })} style={{ maxWidth: 150 }} list="hh-faellig" />
-        <select value={form.konto} onChange={(e) => upd({ konto: e.target.value })} title="Konto">
-          <option value="">— Konto —</option>
-          {konten.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
-        <select value={form.kategorie} onChange={(e) => upd({ kategorie: e.target.value })} title="Kategorie">
-          <option value="">— Kategorie —</option>
-          {kategorien.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
+        <Waehler wert={form.konto} onWahl={(v) => upd({ konto: v })} liste={konten} platzhalter="Konto" className="hh-waehler" />
+        <Waehler wert={form.kategorie} onWahl={(v) => upd({ kategorie: v })} liste={kategorien} platzhalter="Kategorie" className="hh-waehler" />
         <input className="wide" placeholder="Notiz" value={form.notiz} onChange={(e) => upd({ notiz: e.target.value })} />
         <button className="btn" type="submit">{editId != null ? "Speichern" : <><Icon name="plus" /> Hinzufügen</>}</button>
         {editId != null && (

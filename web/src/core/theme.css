@@ -2135,6 +2135,9 @@ tr.hh-import-aus td { color: var(--text-faint); }
 tr.hh-import-aus .buch-betrag { opacity: 0.55; }
 .hh-import .modal-actions { margin-top: 12px; }
 
+/* Konto/Kategorie: freies Feld mit Vorschlagsliste statt Auswahl */
+.entry-form .hh-waehler { width: 150px; min-width: 120px; }
+
 /* Fixkost diesen Monat schon gebucht */
 .btn.hh-gebucht { color: var(--green-soft); }
 .hh-schon { color: var(--amber); }

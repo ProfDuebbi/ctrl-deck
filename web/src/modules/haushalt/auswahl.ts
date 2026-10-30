@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { hh, type Vorschlaege } from "./api";
+import { hh, EINNAHME_KATEGORIEN, type Vorschlaege } from "./api";
 
 /**
  * Auswahllisten fuer Konto und Kategorie.
@@ -45,21 +45,43 @@ function holen(): Promise<Vorschlaege> {
   return laufend;
 }
 
-/** Eigene Werte zuerst, Vorgaben fuellen auf; Doppelte fliegen raus. */
-const mische = (eigene: string[] | undefined, standard: string[]) =>
-  [...new Set([...(eigene ?? []), ...standard])];
+/**
+ * Eigene Werte und Vorgaben zusammen, nach dem Alphabet. Doppelte fliegen
+ * raus, auch wenn sie sich nur in der Schreibung unterscheiden — dann gewinnt
+ * die eigene Schreibweise.
+ */
+function mische(eigene: string[] | undefined, standard: string[]): string[] {
+  const je = new Map<string, string>();
+  for (const w of [...(eigene ?? []), ...standard]) {
+    const k = w.trim().toLocaleLowerCase("de");
+    if (k && !je.has(k)) je.set(k, w.trim());
+  }
+  return [...je.values()].sort((a, b) => a.localeCompare(b, "de", { sensitivity: "base" }));
+}
+
+// Wer nach dem Speichern neu laden laesst, damit ein frisch eingetippter Wert
+// beim naechsten Mal in der Liste steht.
+const hoerer = new Set<() => void>();
+
+/** Vorschlaege neu holen — nach dem Speichern eines Formulars aufrufen. */
+export function auswahlNeuLaden(): void {
+  laufend = null;
+  holen().then(() => hoerer.forEach((h) => h())).catch(() => { /* Kuer */ });
+}
 
 function useAuswahl(feld: "konten" | "kategorien", standard: string[]): string[] {
   const [liste, setListe] = useState<string[]>(() => mische(geladen?.[feld], standard));
 
   useEffect(() => {
     let aktiv = true;
+    const setzen = () => { if (aktiv && geladen) setListe(mische(geladen[feld], standard)); };
+    hoerer.add(setzen);
     holen()
-      .then((v) => { if (aktiv) setListe(mische(v[feld], standard)); })
+      .then(setzen)
       .catch(() => {
         /* Vorschlaege sind Kuer — die Vorgaben stehen ja schon da. */
       });
-    return () => { aktiv = false; };
+    return () => { aktiv = false; hoerer.delete(setzen); };
   }, [feld, standard]);
 
   return liste;
@@ -67,3 +89,4 @@ function useAuswahl(feld: "konten" | "kategorien", standard: string[]): string[]
 
 export const useKonten = () => useAuswahl("konten", STANDARD_KONTEN);
 export const useKategorien = () => useAuswahl("kategorien", STANDARD_KATEGORIEN);
+export const useEinnahmeKategorien = () => useAuswahl("kategorien", EINNAHME_KATEGORIEN);

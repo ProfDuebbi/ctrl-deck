@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   hh, euro, parseBetrag, datumLabel, periodeLabel, periodeHeute, heuteLokal,
-  EINNAHME_KATEGORIEN, EINNAHME_NAMEN, MONATE,
+  EINNAHME_NAMEN, MONATE,
   type Einnahme, type Buchung, type Summary,
 } from "./api";
 import { useConfirm } from "../../core/ui";
 import { Icon } from "../../core/Icon";
-import { useKonten } from "./auswahl";
+import { useKonten, useEinnahmeKategorien, auswahlNeuLaden } from "./auswahl";
+import { Waehler } from "./Waehler";
 
 const leeresFormular = () => ({
   name: "", betrag: "", tag: "1", kategorie: "", konto: "",
@@ -24,6 +25,7 @@ const leereSondereinnahme = () => ({
  */
 export function Einnahmen() {
   const konten = useKonten();
+  const kategorien = useEinnahmeKategorien();
   const confirm = useConfirm();
   const [liste, setListe] = useState<Einnahme[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -110,6 +112,7 @@ export function Einnahmen() {
     setEditId(null);
     setFormError(null);
     await laden();
+    auswahlNeuLaden();
     const nachgebucht = res.gebucht > 0 ? ` — ${res.gebucht} fällige Buchung(en) angelegt.` : "";
     flash((editId != null ? "Einnahme aktualisiert." : `„${name}“ angelegt.`) + nachgebucht);
   }
@@ -139,7 +142,9 @@ export function Einnahmen() {
   async function jetztBuchen(e: Einnahme) {
     const res = await hh.einnahmeJetzt(e.id);
     await laden();
-    flash(res.gebucht > 0 ? `${euro(e.betrag)} gebucht.` : "Für diesen Monat ist bereits gebucht.");
+    flash(res.gebucht > 0
+      ? `${euro(e.betrag)} gebucht.`
+      : "Für diesen Monat ist schon gebucht (auch eine Buchung von Hand mit gleichem Namen zählt).");
   }
 
   async function loeschen(e: Einnahme) {
@@ -176,6 +181,7 @@ export function Einnahmen() {
     setSonder({ ...leereSondereinnahme(), konto: sonder.konto });
     setSonderError(null);
     await laden();
+    auswahlNeuLaden();
     flash(`Sondereinnahme über ${euro(betrag)} gebucht.`);
   }
 
@@ -229,14 +235,8 @@ export function Einnahmen() {
           />
           <span>.</span>
         </label>
-        <select value={form.kategorie} onChange={(ev) => upd({ kategorie: ev.target.value })} title="Kategorie">
-          <option value="">— Kategorie —</option>
-          {EINNAHME_KATEGORIEN.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
-        <select value={form.konto} onChange={(ev) => upd({ konto: ev.target.value })} title="Konto">
-          <option value="">— Konto —</option>
-          {konten.map((k) => <option key={k} value={k}>{k}</option>)}
-        </select>
+        <Waehler wert={form.kategorie} onWahl={(v) => upd({ kategorie: v })} liste={kategorien} platzhalter="Kategorie" className="hh-waehler" />
+        <Waehler wert={form.konto} onWahl={(v) => upd({ konto: v })} liste={konten} platzhalter="Konto" className="hh-waehler" />
         <label className="feld-mit-label" title="Ab welchem Monat gebucht wird">
           <span>ab</span>
           <input type="month" value={form.start} onChange={(ev) => upd({ start: ev.target.value })} />
@@ -311,14 +311,8 @@ export function Einnahmen() {
             placeholder="Woher? (z. B. Steuererstattung)" value={sonder.name} list="hh-einnahme-namen"
             onChange={(ev) => updSonder({ name: ev.target.value })} style={{ minWidth: 190 }}
           />
-          <select value={sonder.kategorie} onChange={(ev) => updSonder({ kategorie: ev.target.value })} title="Kategorie">
-            <option value="">— Kategorie —</option>
-            {EINNAHME_KATEGORIEN.map((k) => <option key={k} value={k}>{k}</option>)}
-          </select>
-          <select value={sonder.konto} onChange={(ev) => updSonder({ konto: ev.target.value })} title="Konto">
-            <option value="">— Konto —</option>
-            {konten.map((k) => <option key={k} value={k}>{k}</option>)}
-          </select>
+          <Waehler wert={sonder.kategorie} onWahl={(v) => updSonder({ kategorie: v })} liste={kategorien} platzhalter="Kategorie" className="hh-waehler" />
+          <Waehler wert={sonder.konto} onWahl={(v) => updSonder({ konto: v })} liste={konten} platzhalter="Konto" className="hh-waehler" />
           <input className="wide" placeholder="Notiz" value={sonder.notiz} onChange={(ev) => updSonder({ notiz: ev.target.value })} />
           <button className="btn" type="submit"><Icon name="plus" /> Buchen</button>
         </form>

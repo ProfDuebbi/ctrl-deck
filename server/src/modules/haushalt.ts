@@ -261,6 +261,28 @@ async function einnahmenAusfuehren(opts: { nurId?: number; vorziehen?: boolean }
           "SELECT 1 FROM einnahmen_laeufe WHERE einnahme_id = ? AND periode = ?", e.id, periode
         );
         if (schon) return false;
+
+        // Schon von Hand gebucht? Dann diese Buchung als die des Monats
+        // nehmen, statt eine zweite anzulegen. Erkannt am Namen als Empfaenger
+        // im selben Monat und einem Betrag hoechstens 10 % daneben — der Name
+        // allein reicht nicht, „Taschengeld" steht auch an Leihgaben und Pfand.
+        const vonHand = await db.eine<{ id: number; datum: string }>(
+          `SELECT b.id, b.datum FROM buchungen b
+            WHERE b.art = 'eingang' AND substr(b.datum, 1, 7) = ?
+              AND LOWER(TRIM(b.empfaenger)) = LOWER(TRIM(?))
+              AND ABS(b.betrag - ?) <= ? * 0.1
+              AND NOT EXISTS (SELECT 1 FROM einnahmen_laeufe l WHERE l.buchung_id = b.id)
+            ORDER BY ABS(b.betrag - ?), b.id LIMIT 1`,
+          periode, e.name, e.betrag, e.betrag, e.betrag
+        );
+        if (vonHand) {
+          await db.schreibe(
+            "INSERT INTO einnahmen_laeufe (einnahme_id, periode, buchung_id, datum) VALUES (?, ?, ?, ?)",
+            e.id, periode, vonHand.id, vonHand.datum
+          );
+          return false;
+        }
+
         const info = await db.schreibe(
           `INSERT INTO buchungen (datum, art, betrag, kategorie, empfaenger, konto, notiz, created_at)
            VALUES (?, 'eingang', ?, ?, ?, ?, ?, ?)`,
@@ -797,10 +819,22 @@ router.get("/vorschlaege", async (_req, res) => {
       )
     ).map((r) => r.wert);
 
+  // Konten und Kategorien stehen auch an Fixkosten und Einnahmen. Ein neues
+  // Konto, das bisher nur an einer Fixkost haengt, soll trotzdem waehlbar sein.
+  const auchAus = async (name: "kategorie" | "konto") =>
+    (
+      await db.alle<{ wert: string }>(
+        `SELECT ${name} AS wert FROM fixkosten WHERE ${name} IS NOT NULL AND TRIM(${name}) <> ''
+         UNION SELECT ${name} FROM einnahmen WHERE ${name} IS NOT NULL AND TRIM(${name}) <> ''`
+      )
+    ).map((r) => r.wert);
+  const vereint = async (name: "kategorie" | "konto") =>
+    [...new Set([...(await spalte(name)), ...(await auchAus(name))])];
+
   res.json({
     empfaenger: await spalte("empfaenger"),
-    kategorien: await spalte("kategorie"),
-    konten: await spalte("konto"),
+    kategorien: await vereint("kategorie"),
+    konten: await vereint("konto"),
   });
 });
 
