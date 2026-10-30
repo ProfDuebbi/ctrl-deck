@@ -8,7 +8,7 @@ Diese Datei ist die einzige Quelle: Das Programm liest sie beim Aufruf von
 und darunter Punkte mit `-`. Wer eine Zeile ergänzt, ändert damit zugleich das,
 was in der Oberfläche steht.
 
-## Unveröffentlicht
+## 0.4.1 — 30.10.2026
 
 ### Neu
 - **Übertrag aus dem Vormonat.** Was am Monatsende übrig ist, steht im
