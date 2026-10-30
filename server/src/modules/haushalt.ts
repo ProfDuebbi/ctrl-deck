@@ -1,5 +1,6 @@
 import { machRouter } from "../route.js";
-import { db, type Wert } from "../db.js";
+import { db, getSetting, setSetting, type Wert } from "../db.js";
+import { leseAuszug } from "./kontoauszug.js";
 import {
   fruehestes, jeMonat, tageZaehlen,
   type Diagramm, type ProfilBeitrag, type ProfilZahl,
@@ -101,7 +102,25 @@ async function einrichten(): Promise<void> {
     notiz     TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_schulden_posten ON schulden_posten (schuld_id);
+
+  -- Welche Buchung per „jetzt buchen" aus welcher Fixkost entstand. Fixkosten
+  -- buchen sich NICHT selbst (Wunsch des Nutzers) — diese Tabelle haelt nur
+  -- fest, was er von Hand ausgeloest hat, damit die Liste „gebucht" zeigen kann.
+  CREATE TABLE IF NOT EXISTS fixkosten_buchungen (
+    fixkost_id INTEGER NOT NULL,
+    buchung_id INTEGER NOT NULL,
+    periode    TEXT NOT NULL,              -- YYYY-MM
+    PRIMARY KEY (fixkost_id, buchung_id)
+  );
   `);
+
+  // Fingerabdruck einer aus dem Kontoauszug uebernommenen Zeile — damit ein
+  // zweiter Import desselben Zeitraums nichts doppelt anlegt.
+  const buchSpalten = new Set(
+    (await db.alle<{ name: string }>("PRAGMA table_info(buchungen)")).map((c) => c.name)
+  );
+  if (!buchSpalten.has("import_ref")) await db.exec("ALTER TABLE buchungen ADD COLUMN import_ref TEXT");
+  await db.exec("CREATE INDEX IF NOT EXISTS idx_buchungen_import ON buchungen (import_ref)");
 
   // Vertragsfelder kamen nachtraeglich dazu — bestehende DBs nachziehen.
   const spalten = new Set(
@@ -422,10 +441,48 @@ router.use(async (_req, _res, next) => {
 });
 
 router.get("/fixkosten", async (_req, res) => {
-  const rows = await db.alle<Record<string, unknown> & VertragFelder>(
+  const rows = await db.alle<Record<string, unknown> & VertragFelder & { id: number }>(
     "SELECT * FROM fixkosten ORDER BY aktiv DESC, kategorie, name"
   );
-  res.json(rows.map((r) => ({ ...r, vertrag: vertragsInfo(r) })));
+  // Von Hand ausgeloeste Buchungen des laufenden Monats. Ueber die Buchung
+  // selbst verbunden: wer sie im Buchungsblatt loescht, sieht hier wieder „offen".
+  const gebucht = await db.alle<{ fixkost_id: number; datum: string; betrag: number }>(
+    `SELECT f.fixkost_id, b.datum, b.betrag
+       FROM fixkosten_buchungen f JOIN buchungen b ON b.id = f.buchung_id
+      WHERE f.periode = ? ORDER BY b.datum DESC`,
+    periodeHeute()
+  );
+  const jeId = new Map<number, { datum: string; betrag: number }>();
+  for (const g of gebucht) if (!jeId.has(g.fixkost_id)) jeId.set(g.fixkost_id, { datum: g.datum, betrag: g.betrag });
+  res.json(rows.map((r) => ({ ...r, vertrag: vertragsInfo(r), gebucht: jeId.get(r.id) ?? null })));
+});
+
+/**
+ * Eine Fixkost jetzt als Ausgabe buchen. Betrag und Datum duerfen abweichen —
+ * die tatsaechliche Abbuchung ist nicht immer der Listenpreis.
+ */
+router.post("/fixkosten/:id/buchen", async (req, res) => {
+  const f = await db.eine<{ id: number; name: string; betrag: number; kategorie: string | null; konto: string | null }>(
+    "SELECT id, name, betrag, kategorie, konto FROM fixkosten WHERE id = ?", req.params.id
+  );
+  if (!f) return res.status(404).json({ error: "Fixkost nicht gefunden" });
+  const b = req.body ?? {};
+  const betrag = b.betrag != null ? Number(b.betrag) : f.betrag;
+  if (!Number.isFinite(betrag) || betrag <= 0) return res.status(400).json({ error: "ungültiger Betrag" });
+  const datum = /^\d{4}-\d{2}-\d{2}$/.test(String(b.datum ?? "")) ? String(b.datum) : heuteLokal();
+  const id = await db.transaktion(async () => {
+    const info = await db.schreibe(
+      `INSERT INTO buchungen (datum, art, betrag, kategorie, empfaenger, konto, notiz, created_at)
+       VALUES (?, 'ausgang', ?, ?, ?, ?, ?, ?)`,
+      datum, betrag, f.kategorie || null, f.name, f.konto || null, b.notiz || null, now()
+    );
+    await db.schreibe(
+      "INSERT INTO fixkosten_buchungen (fixkost_id, buchung_id, periode) VALUES (?, ?, ?)",
+      f.id, info.id, datum.slice(0, 7)
+    );
+    return info.id;
+  });
+  res.json({ id });
 });
 
 /** Nur die Positionen mit Vertragsdaten, dringendste zuerst. */
@@ -476,6 +533,8 @@ router.put("/fixkosten/:id", async (req, res) => {
 });
 
 router.delete("/fixkosten/:id", async (req, res) => {
+  // Gebuchte Betraege bleiben stehen, nur die Verbindung geht.
+  await db.schreibe("DELETE FROM fixkosten_buchungen WHERE fixkost_id=?", req.params.id);
   await db.schreibe("DELETE FROM fixkosten WHERE id=?", req.params.id);
   res.json({ ok: true });
 });
@@ -587,11 +646,13 @@ router.get("/tile", async (_req, res) => {
     }
   }
 
+  const uebertrag = await uebertragVor(monat);
+
   res.json({
     fixProMonat,
     einnahmenProMonat: einnahmen,
     uebrigProMonat: einnahmen - fixProMonat,
-    monat: { ...saldo, saldo: saldo.ein - saldo.aus },
+    monat: { ...saldo, uebertrag, saldo: uebertrag + saldo.ein - saldo.aus },
     schuldenOffen: schulden.offen,
     schuldenAnzahl: schulden.anzahl,
     naechsteEinnahme: naechste,
@@ -782,8 +843,168 @@ router.put("/buchungen/:id", async (req, res) => {
 });
 
 router.delete("/buchungen/:id", async (req, res) => {
+  await db.schreibe("DELETE FROM fixkosten_buchungen WHERE buchung_id=?", req.params.id);
   await db.schreibe("DELETE FROM buchungen WHERE id=?", req.params.id);
   res.json({ ok: true });
+});
+
+// --- Uebertrag aus dem Vormonat --------------------------------------------
+
+/*
+ * Was am Monatsende uebrig ist, steht im naechsten Monat als Uebertrag. Das
+ * ist bewusst KEINE Buchung: sonst zaehlte der Jahresbericht dasselbe Geld
+ * einmal im alten und noch einmal im neuen Monat als Einnahme. Der Uebertrag
+ * ist die Summe aller Monate davor — ab einem Startmonat, damit grob
+ * nachgetragene Altmonate den Stand nicht verfaelschen.
+ */
+const UEBERTRAG_AB = "haushalt_uebertrag_ab";
+
+/** Startmonat der Rechnung: eingestellt, sonst der Monat der ersten Buchung. */
+async function uebertragAb(): Promise<string | null> {
+  const gesetzt = await getSetting(UEBERTRAG_AB);
+  if (gesetzt && /^\d{4}-\d{2}$/.test(gesetzt)) return gesetzt;
+  const erste = await db.eine<{ d: string | null }>("SELECT MIN(datum) d FROM buchungen");
+  return erste?.d ? erste.d.slice(0, 7) : null;
+}
+
+/** Stand am Ende des Vormonats von `periode` (YYYY-MM). */
+async function uebertragVor(periode: string): Promise<number> {
+  const ab = await uebertragAb();
+  if (!ab || periode <= ab) return 0;
+  const r = (await db.eine<{ s: number }>(
+    `SELECT COALESCE(SUM(CASE WHEN art = 'eingang' THEN betrag ELSE -betrag END), 0) s
+       FROM buchungen WHERE datum >= ? AND datum < ?`,
+    `${ab}-01`, `${periode}-01`
+  ))!;
+  // Gegen Gleitkomma-Krumen wie 0.049999999 — es geht um Cent.
+  return Math.round(r.s * 100) / 100;
+}
+
+router.get("/uebertrag", async (req, res) => {
+  const monat = /^\d{4}-\d{2}$/.test(String(req.query.monat ?? "")) ? String(req.query.monat) : periodeHeute();
+  res.json({
+    monat,
+    ab: await uebertragAb(),
+    eingestellt: (await getSetting(UEBERTRAG_AB)) != null,
+    betrag: await uebertragVor(monat),
+  });
+});
+
+router.put("/uebertrag", async (req, res) => {
+  const ab = String(req.body?.ab ?? "");
+  if (ab && !/^\d{4}-\d{2}$/.test(ab)) return res.status(400).json({ error: "Monat als JJJJ-MM angeben" });
+  if (ab) await setSetting(UEBERTRAG_AB, ab);
+  else await db.schreibe("DELETE FROM settings WHERE key = ?", UEBERTRAG_AB);
+  res.json({ ok: true, ab: await uebertragAb() });
+});
+
+// --- Kontoauszug importieren -------------------------------------------------
+
+type ImportZeile = {
+  ref: string; datum: string; art: "eingang" | "ausgang"; betrag: number;
+  empfaenger: string | null; notiz: string | null; kategorie?: string | null;
+};
+
+/** Abstand zweier YYYY-MM-DD in ganzen Tagen. */
+const tageZwischen = (a: string, b: string) =>
+  Math.abs(Math.round((alsDate(a).getTime() - alsDate(b).getTime()) / 86_400_000));
+
+/**
+ * Liest den Auszug und sortiert jede Zeile ein: schon importiert, vermutlich
+ * schon von Hand erfasst (gleiche Richtung, gleicher Betrag, hoechstens fuenf
+ * Tage auseinander) oder neu. Schreibt nichts.
+ */
+router.post("/import/vorschau", async (req, res) => {
+  const text = String(req.body?.text ?? "");
+  if (!text.trim()) return res.status(400).json({ error: "Die Datei ist leer." });
+  let auszug;
+  try { auszug = leseAuszug(text); }
+  catch (e) { return res.status(400).json({ error: (e as Error).message }); }
+
+  const daten = auszug.zeilen.map((z) => z.datum).sort();
+  const von = isoLokal(new Date(alsDate(daten[0]).getTime() - 6 * 86_400_000));
+  const bis = isoLokal(new Date(alsDate(daten[daten.length - 1]).getTime() + 6 * 86_400_000));
+  const vorhanden = await db.alle<{
+    id: number; datum: string; art: string; betrag: number; empfaenger: string | null;
+    kategorie: string | null; import_ref: string | null;
+  }>(
+    "SELECT id, datum, art, betrag, empfaenger, kategorie, import_ref FROM buchungen WHERE datum BETWEEN ? AND ?",
+    von, bis
+  );
+  const refs = new Set(
+    (await db.alle<{ r: string }>("SELECT import_ref r FROM buchungen WHERE import_ref IS NOT NULL")).map((x) => x.r)
+  );
+
+  // Kategorie vorschlagen: die zuletzt benutzte fuer denselben Empfaenger.
+  const katRows = await db.alle<{ e: string; k: string }>(
+    `SELECT LOWER(empfaenger) e, kategorie k FROM buchungen
+      WHERE empfaenger IS NOT NULL AND kategorie IS NOT NULL ORDER BY datum ASC, id ASC`
+  );
+  const katJe = new Map(katRows.map((r) => [r.e, r.k]));
+
+  const vergeben = new Set<number>();
+  const zeilen = auszug.zeilen.map((z) => {
+    if (refs.has(z.ref)) return { ...z, status: "importiert" as const, kategorie: null, treffer: null };
+    // Der zeitlich naechste passende Eintrag, jeder hoechstens einmal.
+    let treffer: (typeof vorhanden)[number] | null = null;
+    for (const v of vorhanden) {
+      if (v.import_ref || vergeben.has(v.id) || v.art !== z.art || Math.abs(v.betrag - z.betrag) > 0.004) continue;
+      const t = tageZwischen(v.datum, z.datum);
+      if (t > 5) continue;
+      if (!treffer || t < tageZwischen(treffer.datum, z.datum)) treffer = v;
+    }
+    if (treffer) vergeben.add(treffer.id);
+    return {
+      ...z,
+      status: treffer ? ("erfasst" as const) : ("neu" as const),
+      kategorie: treffer?.kategorie ?? (z.empfaenger ? katJe.get(z.empfaenger.toLowerCase()) ?? null : null),
+      treffer: treffer ? { id: treffer.id, datum: treffer.datum, empfaenger: treffer.empfaenger } : null,
+    };
+  });
+
+  res.json({
+    trennzeichen: auszug.trennzeichen,
+    spalten: auszug.spalten,
+    uebersprungen: auszug.uebersprungen,
+    zeilen,
+  });
+});
+
+/**
+ * Uebernimmt die gewaehlten Zeilen. `zuordnen` markiert von Hand erfasste
+ * Buchungen mit dem Fingerabdruck ihrer Auszugszeile — dann gelten sie beim
+ * naechsten Import desselben Zeitraums als erledigt statt erneut als Treffer.
+ */
+router.post("/import", async (req, res) => {
+  const b = req.body ?? {};
+  const konto = b.konto ? String(b.konto) : null;
+  const zeilen: ImportZeile[] = Array.isArray(b.zeilen) ? b.zeilen : [];
+  const zuordnen: { buchung_id: number; ref: string }[] = Array.isArray(b.zuordnen) ? b.zuordnen : [];
+
+  const ergebnis = await db.transaktion(async () => {
+    let angelegt = 0, doppelt = 0, zugeordnet = 0;
+    for (const z of zeilen) {
+      const betrag = Number(z.betrag);
+      if (!z.ref || !/^\d{4}-\d{2}-\d{2}$/.test(String(z.datum)) || !Number.isFinite(betrag) || betrag <= 0) continue;
+      if (await db.eine("SELECT 1 FROM buchungen WHERE import_ref = ?", String(z.ref))) { doppelt++; continue; }
+      await db.schreibe(
+        `INSERT INTO buchungen (datum, art, betrag, kategorie, empfaenger, konto, notiz, created_at, import_ref)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        z.datum, z.art === "eingang" ? "eingang" : "ausgang", betrag,
+        z.kategorie || null, z.empfaenger || null, konto, z.notiz || null, now(), String(z.ref)
+      );
+      angelegt++;
+    }
+    for (const t of zuordnen) {
+      if (!t.ref) continue;
+      const r = await db.schreibe(
+        "UPDATE buchungen SET import_ref = ? WHERE id = ? AND import_ref IS NULL", String(t.ref), Number(t.buchung_id)
+      );
+      zugeordnet += r.zeilen;
+    }
+    return { angelegt, doppelt, zugeordnet };
+  });
+  res.json(ergebnis);
 });
 
 // --- Jahresbericht --------------------------------------------------------

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  hh, euro, monatsAnteil, datumLabel, vertragsText, heuteLokal, nachDringlichkeit,
+  hh, euro, monatsAnteil, datumLabel, vertragsText, heuteLokal, nachDringlichkeit, parseBetrag,
   INTERVALLE, FRIST_EINHEITEN,
   type Fixkost, type Intervall, type Summary, type FristEinheit,
 } from "./api";
@@ -47,6 +47,8 @@ export function Fixkosten() {
   const [toast, setToast] = useState<string | null>(null);
   const [zeigeInaktive, setZeigeInaktive] = useState(false);
   const [vertragModal, setVertragModal] = useState<VertragForm | null>(null);
+  const [buchModal, setBuchModal] = useState<{ pos: Fixkost; betrag: string; datum: string } | null>(null);
+  const [buchFehler, setBuchFehler] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 3500); };
@@ -144,6 +146,27 @@ export function Fixkosten() {
     await hh.remove(p.id);
     await laden();
     flash("Position gelöscht.");
+  }
+
+  // --- Jetzt buchen --------------------------------------------------------
+
+  // Fixkosten buchen sich bewusst nicht selbst. Der Knopf legt die Abbuchung
+  // mit einem Klick an; Betrag und Datum lassen sich vorher anpassen, weil die
+  // echte Abbuchung nicht immer der Listenpreis ist.
+  function openBuchen(p: Fixkost) {
+    setBuchFehler(null);
+    setBuchModal({ pos: p, betrag: p.betrag ? String(p.betrag).replace(".", ",") : "", datum: heuteLokal() });
+  }
+
+  async function buchen() {
+    if (!buchModal) return;
+    const betrag = parseBetrag(buchModal.betrag);
+    if (!Number.isFinite(betrag) || betrag <= 0) { setBuchFehler("Bitte einen Betrag größer als 0 angeben."); return; }
+    if (!buchModal.datum) { setBuchFehler("Bitte ein Datum angeben."); return; }
+    await hh.fixkostBuchen(buchModal.pos.id, { betrag, datum: buchModal.datum });
+    setBuchModal(null);
+    await laden();
+    flash(`${buchModal.pos.name}: ${euro(betrag)} gebucht.`);
   }
 
   // --- Verträge ------------------------------------------------------------
@@ -349,6 +372,21 @@ export function Fixkosten() {
                 <span className="hh-konto">{p.konto ?? "–"}</span>
                 <span className="hh-faellig">{p.faellig ?? ""}</span>
                 <span className="cell-actions">
+                  {p.aktiv ? (
+                    p.gebucht ? (
+                      <button
+                        className="btn ghost small hh-gebucht"
+                        title={`Diesen Monat gebucht: ${euro(p.gebucht.betrag)} am ${datumLabel(p.gebucht.datum)}. Klicken, um noch einmal zu buchen.`}
+                        onClick={() => openBuchen(p)}
+                      >
+                        <Icon name="haken" /> {datumLabel(p.gebucht.datum).slice(0, 6)}
+                      </button>
+                    ) : (
+                      <button className="btn ghost small" title="Jetzt als Ausgabe buchen" onClick={() => openBuchen(p)}>
+                        Buchen
+                      </button>
+                    )
+                  ) : null}
                   <button
                     className={`icon-btn ${p.vertrag ? `vertrag-${p.vertrag.status}` : ""}`}
                     title={p.vertrag ? vertragsText(p.vertrag) : "Vertragslaufzeit & Kündigungsfrist"}
@@ -414,6 +452,41 @@ export function Fixkosten() {
           <div className="modal-actions">
             <button className="btn ghost" onClick={() => setVertragModal(null)}>Abbrechen</button>
             <button className="btn" onClick={saveVertrag}>Speichern</button>
+          </div>
+        </Modal>
+      )}
+
+      {buchModal && (
+        <Modal title={`${buchModal.pos.name} buchen`} onClose={() => setBuchModal(null)}>
+          <div className="meter-modal-fields">
+            <label>Betrag
+              <input
+                value={buchModal.betrag} inputMode="decimal" autoFocus
+                onChange={(e) => { setBuchModal({ ...buchModal, betrag: e.target.value }); setBuchFehler(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") buchen(); }}
+              />
+            </label>
+            <label>Datum
+              <input
+                type="date" value={buchModal.datum}
+                onChange={(e) => { setBuchModal({ ...buchModal, datum: e.target.value }); setBuchFehler(null); }}
+              />
+            </label>
+            {buchModal.pos.gebucht && (
+              <p className="modal-hinweis hh-schon">
+                Diesen Monat schon gebucht: {euro(buchModal.pos.gebucht.betrag)} am {datumLabel(buchModal.pos.gebucht.datum)}.
+              </p>
+            )}
+            <p className="modal-hinweis">
+              Legt eine Ausgabe im Buchungsblatt an
+              {buchModal.pos.konto ? ` (Konto ${buchModal.pos.konto})` : ""}.
+              Wieder rückgängig machen geht dort über Löschen.
+            </p>
+            {buchFehler && <div className="form-error" role="alert"><Icon name="warnung" /> {buchFehler}</div>}
+          </div>
+          <div className="modal-actions">
+            <button className="btn ghost" onClick={() => setBuchModal(null)}>Abbrechen</button>
+            <button className="btn" onClick={buchen}>Buchen</button>
           </div>
         </Modal>
       )}

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  hh, euro, parseBetrag, MONATE, type Vorschlaege,
-  type Buchung, heuteLokal as heute,
+  hh, euro, parseBetrag, MONATE, periodeLabel, type Vorschlaege,
+  type Buchung, type Uebertrag, heuteLokal as heute,
 } from "./api";
-import { useConfirm } from "../../core/ui";
+import { useConfirm, Modal } from "../../core/ui";
 import { Icon } from "../../core/Icon";
 import { useKategorien, useKonten } from "./auswahl";
+import { Import } from "./Import";
 
 
 const leeresFormular = () => ({
@@ -32,15 +33,27 @@ export function Buchungen() {
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 3500); };
 
-  const { from, to, label } = useMemo(() => {
+  const [uebertrag, setUebertrag] = useState<Uebertrag | null>(null);
+  const [abModal, setAbModal] = useState<string | null>(null);
+  const [importOffen, setImportOffen] = useState(false);
+
+  const { from, to, label, periode } = useMemo(() => {
     const j = anker.getFullYear();
     const m = anker.getMonth();
     const p = (n: number) => String(n).padStart(2, "0");
     const letzter = new Date(j, m + 1, 0).getDate();
-    return { from: `${j}-${p(m + 1)}-01`, to: `${j}-${p(m + 1)}-${p(letzter)}`, label: `${MONATE[m]} ${j}` };
+    return {
+      from: `${j}-${p(m + 1)}-01`, to: `${j}-${p(m + 1)}-${p(letzter)}`,
+      label: `${MONATE[m]} ${j}`, periode: `${j}-${p(m + 1)}`,
+    };
   }, [anker]);
 
-  const laden = useCallback(() => hh.buchungen(from, to).then(setRows), [from, to]);
+  // Der Uebertrag haengt an allen Buchungen davor — nach jeder Aenderung mitladen.
+  const laden = useCallback(async () => {
+    const [r, u] = await Promise.all([hh.buchungen(from, to), hh.uebertrag(periode)]);
+    setRows(r);
+    setUebertrag(u);
+  }, [from, to, periode]);
   useEffect(() => { laden(); }, [laden]);
   useEffect(() => {
     hh.vorschlaege().then(setVorschlaege).catch(() => { /* Vorschlaege sind Kuer */ });
@@ -49,8 +62,16 @@ export function Buchungen() {
   const summe = useMemo(() => {
     const ein = rows.filter((r) => r.art === "eingang").reduce((s, r) => s + r.betrag, 0);
     const aus = rows.filter((r) => r.art === "ausgang").reduce((s, r) => s + r.betrag, 0);
-    return { ein, aus, diff: ein - aus };
-  }, [rows]);
+    const ueb = uebertrag?.betrag ?? 0;
+    return { ein, aus, ueb, diff: ueb + ein - aus };
+  }, [rows, uebertrag]);
+
+  async function abSpeichern() {
+    await hh.setUebertragAb(abModal || null);
+    setAbModal(null);
+    await laden();
+    flash(abModal ? `Übertrag wird ab ${periodeLabel(abModal)} gerechnet.` : "Übertrag rechnet wieder ab der ersten Buchung.");
+  }
 
   const upd = (patch: Partial<ReturnType<typeof leeresFormular>>) => {
     setForm({ ...form, ...patch });
@@ -119,11 +140,52 @@ export function Buchungen() {
           {!istDieserMonat && <button className="btn ghost small" onClick={() => setAnker(new Date())}>heute</button>}
         </div>
         <div className="buch-summen">
+          {uebertrag?.ab && (
+            <button
+              className={`bs hh-uebertrag ${summe.ueb < 0 ? "minus" : ""}`}
+              title={`Stand Ende Vormonat, gerechnet ab ${periodeLabel(uebertrag.ab)} — klicken zum Ändern`}
+              onClick={() => setAbModal(uebertrag.ab)}
+            >
+              Übertrag {euro(summe.ueb)}
+            </button>
+          )}
           <span className="bs ein">+ {euro(summe.ein)}</span>
           <span className="bs aus">− {euro(summe.aus)}</span>
           <span className={`bs diff ${summe.diff < 0 ? "minus" : ""}`}>= {euro(summe.diff)}</span>
         </div>
+        {!importOffen && (
+          <button className="btn ghost small" onClick={() => setImportOffen(true)}>
+            <Icon name="dokument" /> Kontoauszug importieren
+          </button>
+        )}
       </div>
+
+      {importOffen && (
+        <Import
+          onSchliessen={() => setImportOffen(false)}
+          onFertig={async (m) => { setImportOffen(false); await laden(); flash(m); }}
+        />
+      )}
+
+      {abModal != null && (
+        <Modal title="Übertrag aus dem Vormonat" onClose={() => setAbModal(null)}>
+          <div className="meter-modal-fields">
+            <label>Rechnen ab Monat
+              <input type="month" value={abModal} onChange={(e) => setAbModal(e.target.value)} autoFocus />
+            </label>
+            <p className="modal-hinweis">
+              Was am Ende eines Monats übrig ist, steht im nächsten als Übertrag, und zwar
+              aufsummiert ab diesem Monat. Ältere Monate, die nur grob nachgetragen sind,
+              zählen dann nicht mit. Der Übertrag ist keine Buchung und taucht im
+              Jahresbericht nicht als Einnahme auf. Feld leeren heißt: ab der ersten Buchung.
+            </p>
+          </div>
+          <div className="modal-actions">
+            <button className="btn ghost" onClick={() => setAbModal(null)}>Abbrechen</button>
+            <button className="btn" onClick={abSpeichern}>Speichern</button>
+          </div>
+        </Modal>
+      )}
 
       <form className={`entry-form ${formError ? "has-error" : ""}`} onSubmit={submit} noValidate>
         <div className="art-wahl">

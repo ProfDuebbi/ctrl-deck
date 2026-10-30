@@ -8,6 +8,32 @@ Diese Datei ist die einzige Quelle: Das Programm liest sie beim Aufruf von
 und darunter Punkte mit `-`. Wer eine Zeile ergänzt, ändert damit zugleich das,
 was in der Oberfläche steht.
 
+## Unveröffentlicht
+
+### Neu
+- **Übertrag aus dem Vormonat.** Was am Monatsende übrig ist, steht im
+  Buchungsblatt des nächsten Monats als **Übertrag** vor den Einnahmen und
+  zählt in den Monatsstand mit, auch auf der Übersichtskachel. Er wird
+  gerechnet, nicht gebucht: Der Jahresbericht zählt dasselbe Geld deshalb
+  nicht zweimal als Einnahme. Ein Klick auf den Übertrag legt fest, ab
+  welchem Monat gerechnet wird, damit grob nachgetragene Altmonate den Stand
+  nicht verfälschen.
+- **Fixkosten jetzt buchen.** Jede aktive Fixkost hat einen Knopf
+  **Buchen**. Er legt die Abbuchung mit einem Klick als Ausgabe an, auch vor
+  dem Fälligkeitstag. Betrag und Datum lassen sich vorher anpassen, weil die
+  echte Abbuchung nicht immer dem Listenpreis entspricht. Was diesen Monat
+  schon gebucht ist, zeigt die Liste mit Haken und Datum. Von selbst bucht
+  sich weiterhin nichts.
+- **Kontoauszug importieren.** Im Buchungsblatt lässt sich der CSV-Export
+  aus dem Onlinebanking einlesen (Commerzbank, Sparkasse, ING, DKB, PayPal
+  und andere). Die Spalten werden über ihre Namen erkannt. Vor dem
+  Übernehmen steht jede Zeile in einer Vorschau. Was es schon gibt, wird
+  erkannt: Zeilen aus einem früheren Import sind gesperrt. Was vermutlich
+  schon von Hand erfasst wurde (gleicher Betrag, höchstens fünf Tage
+  auseinander), ist abgewählt und wird der vorhandenen Buchung zugeordnet.
+  Die Kategorie wird aus früheren Buchungen beim selben Empfänger
+  vorgeschlagen.
+
 ## 0.4.0 — 03.10.2026
 
 ### Neu

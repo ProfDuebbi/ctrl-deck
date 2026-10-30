@@ -27,6 +27,8 @@ export interface Fixkost {
   frist_einheit: FristEinheit | null;
   verlaengerung: number | null;
   vertrag: VertragsInfo | null;
+  /** Diesen Monat per „jetzt buchen" ausgelöst — nur Lesefeld. */
+  gebucht?: { datum: string; betrag: number } | null;
 }
 
 export type Intervall = "monatlich" | "quartal" | "halbjahr" | "jaehrlich";
@@ -47,7 +49,8 @@ export interface TileData {
   fixProMonat: number;
   einnahmenProMonat: number;
   uebrigProMonat: number;
-  monat: { ein: number; aus: number; saldo: number };
+  /** `saldo` enthält den Übertrag aus dem Vormonat schon. */
+  monat: { ein: number; aus: number; uebertrag: number; saldo: number };
   schuldenOffen: number;
   schuldenAnzahl: number;
   naechsteEinnahme: { name: string; datum: string; betrag: number; tage: number } | null;
@@ -137,6 +140,38 @@ export interface Zahlung {
   notiz: string | null;
 }
 
+/** Was vom Vormonat übrig ist — gerechnet, nicht gebucht. */
+export interface Uebertrag {
+  monat: string;
+  /** Ab diesem Monat wird gerechnet; ohne Einstellung der Monat der ersten Buchung. */
+  ab: string | null;
+  eingestellt: boolean;
+  betrag: number;
+}
+
+export type ImportStatus = "neu" | "erfasst" | "importiert";
+
+/** Eine Zeile aus dem Kontoauszug, so wie der Server sie eingeordnet hat. */
+export interface ImportZeile {
+  ref: string;
+  datum: string;
+  art: "eingang" | "ausgang";
+  betrag: number;
+  empfaenger: string | null;
+  notiz: string | null;
+  kategorie: string | null;
+  status: ImportStatus;
+  /** Bei „erfasst": die von Hand angelegte Buchung, die vermutlich dieselbe ist. */
+  treffer: { id: number; datum: string; empfaenger: string | null } | null;
+}
+
+export interface ImportVorschau {
+  trennzeichen: string;
+  spalten: { datum: string; betrag: string; empfaenger: string | null; zweck: string | null };
+  uebersprungen: number;
+  zeilen: ImportZeile[];
+}
+
 /** Eine einzelne Leihe. Die Summe eines Aussenstands ist die Summe seiner Posten. */
 export interface Posten {
   id: number;
@@ -157,6 +192,23 @@ export const hh = {
   summary: () => api<Summary>(`${base}/summary`),
   tile: () => api<TileData>(`${base}/tile`),
   vertraege: () => api<Fixkost[]>(`${base}/vertraege`),
+  fixkostBuchen: (id: number, b: { betrag: number; datum: string }) =>
+    api<{ id: number }>(`${base}/fixkosten/${id}/buchen`, { method: "POST", body: JSON.stringify(b) }),
+
+  uebertrag: (monat: string) => api<Uebertrag>(`${base}/uebertrag?monat=${monat}`),
+  setUebertragAb: (ab: string | null) =>
+    api(`${base}/uebertrag`, { method: "PUT", body: JSON.stringify({ ab }) }),
+
+  importVorschau: (text: string) =>
+    api<ImportVorschau>(`${base}/import/vorschau`, { method: "POST", body: JSON.stringify({ text }) }),
+  importieren: (b: {
+    konto: string | null;
+    zeilen: Omit<ImportZeile, "status" | "treffer">[];
+    zuordnen: { buchung_id: number; ref: string }[];
+  }) =>
+    api<{ angelegt: number; doppelt: number; zugeordnet: number }>(
+      `${base}/import`, { method: "POST", body: JSON.stringify(b) }
+    ),
 
   buchungen: (from: string, to: string) =>
     api<Buchung[]>(`${base}/buchungen?from=${from}&to=${to}`),

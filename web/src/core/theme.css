@@ -2115,6 +2115,30 @@ button.chip:hover { background: color-mix(in srgb, var(--pf, var(--blue)) 24%, t
 .bs.diff { font-weight: 600; color: var(--text); }
 .bs.diff.minus { color: var(--red-soft); }
 
+/* Uebertrag aus dem Vormonat: gerechnet, nicht gebucht — deshalb gedaempft,
+   und anklickbar, weil sich dort der Startmonat einstellen laesst. */
+.hh-uebertrag {
+  font: inherit; font-size: 14px; color: var(--text-dim);
+  background: none; border: none; cursor: pointer; padding: 0;
+  border-bottom: 1px dashed var(--line-strong); transition: color var(--t), border-color var(--t);
+}
+.hh-uebertrag:hover { color: var(--blue); border-bottom-color: var(--blue); }
+.hh-uebertrag.minus { color: var(--red-soft); }
+
+/* Kontoauszug-Import */
+.hh-import-wahl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.hh-import-wahl .modal-hinweis { flex: 1 1 100%; }
+.hh-import-info { margin: 0 0 10px; font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+.hh-import-spalten { display: block; font-size: 12px; color: var(--text-faint); }
+.hh-import-feld { width: 100%; min-width: 140px; }
+tr.hh-import-aus td { color: var(--text-faint); }
+tr.hh-import-aus .buch-betrag { opacity: 0.55; }
+.hh-import .modal-actions { margin-top: 12px; }
+
+/* Fixkost diesen Monat schon gebucht */
+.btn.hh-gebucht { color: var(--green-soft); }
+.hh-schon { color: var(--amber); }
+
 .buch-betrag { white-space: nowrap; }
 .buch-betrag.eingang { color: var(--green-soft); }
 .buch-betrag.ausgang { color: var(--red-soft); }
